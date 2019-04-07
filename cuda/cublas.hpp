@@ -5,14 +5,13 @@
 #include <cublas_v2.h>
 
 #include "error.hpp"
+#include "../utils/noncopyable.hpp"
 
 namespace cuda {
-    class cublas_handle {
+    class cublas_context : noncopyable {
     public:
-        cublas_handle() { CHECK_CUBLAS(cublasCreate(&handle)); }
-        ~cublas_handle() { CHECK_CUBLAS(cublasDestroy(handle)); }
-        cublas_handle(const cublas_handle&) = delete;
-        cublas_handle& operator=(const cublas_handle&) = delete;
+        cublas_context() { CHECK_CUBLAS(cublasCreate(&handle)); }
+        ~cublas_context() { CHECK_CUBLAS(cublasDestroy(handle)); }
 
         auto get() const noexcept { return handle; }
 

@@ -13,21 +13,28 @@
 #define CHECK_CUBLAS(call) cuda::detail::check_cublas_status((call), __FILE__, __LINE__) 
 
 namespace cuda {
-    class exception : public std::exception {
+    namespace detail {
+        class exception : public std::exception {
+        public:
+            explicit exception(const char* msg) : what_msg(msg) { }
+            explicit exception(const std::string& msg) : what_msg(msg) { }
+            virtual ~exception() { }
+
+            const char* what() const noexcept override { return what_msg.c_str(); }
+
+        protected:
+            std::string what_msg;
+        };
+    }
+    
+    class cuda_exception : public detail::exception {
     public:
-        explicit exception(const char* msg) : what_msg(msg) { }
-        explicit exception(const std::string& msg) : what_msg(msg) { }
-        virtual ~exception() { }
-
-        const char* what() const noexcept override { return what_msg.c_str(); }
-
-    protected:
-        std::string what_msg;
+        using detail::exception::exception;
     };
 
-    class cublas_exception : public exception {
+    class cublas_exception : public detail::exception {
     public:
-        using exception::exception;
+        using detail::exception::exception;
     };
 
     namespace detail {
@@ -36,7 +43,7 @@ namespace cuda {
                 std::ostringstream stream;                                             
                 stream << "CUDA Error: " << __FILE__ << ":" << __LINE__ << '\n';       
                 stream << cudaGetErrorString(error) << '\n';                           
-                throw cuda::exception(stream.str());                                   
+                throw cuda::cuda_exception(stream.str());                                   
             }
         }
     

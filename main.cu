@@ -83,7 +83,7 @@ namespace gpu {
 /* cublas implementation */
 namespace cublas {
     template <class T>
-    void matrix_multiply(cuda::cublas_handle& handle,  const T* first, const T* second, T* result, std::size_t n) {
+    void matrix_multiply(cuda::cublas_context& handle,  const T* first, const T* second, T* result, std::size_t n) {
         static_assert(std::is_same<T, float>::value, "uses cublasSgemm; hence, requires T to be float");
 
         int in = static_cast<int>(n);
@@ -99,7 +99,7 @@ namespace cublas {
     }
 
     template <class T>
-    void matrix_add(cuda::cublas_handle& handle, const T* first, const T* second, T* result, std::size_t nx, std::size_t ny) {
+    void matrix_add(cuda::cublas_context& handle, const T* first, const T* second, T* result, std::size_t nx, std::size_t ny) {
         static_assert(std::is_same<T, float>::value, "uses cublasSgeam; hence, requires T to be float");
 
         int inx = static_cast<int>(nx), iny = static_cast<int>(ny);
@@ -126,12 +126,14 @@ auto check_result(ForwardItr first1, ForwardItr last1, ForwardItr first2, T rati
     });
 }
 
-template <class Container>
-void random_fill(Container& cont) {
+template <class InputIt>
+void random_fill(InputIt first, InputIt last) {
+    using value_type = typename std::remove_reference<decltype(*first)>::type;
+
     static std::random_device rd;
     static std::mt19937 rng(rd());
-    static std::uniform_real_distribution<typename Container::value_type> dist(1.0, 1000.0);
-    std::generate(std::begin(cont), std::end(cont), []() { return dist(rng); });
+    static std::uniform_real_distribution<value_type> dist(1.0, 1000.0);
+    std::generate(first, last, []() { return dist(rng); });
 }
 
 void test_matrix_multiply() {
@@ -141,8 +143,8 @@ void test_matrix_multiply() {
 
     /* generate sample data */
     std::vector<T> lhs(size), rhs(size);
-    random_fill(lhs);
-    random_fill(rhs);
+    random_fill(std::begin(lhs), std::end(lhs));
+    random_fill(std::begin(rhs), std::end(rhs));
 
     /* run on cpu */
     std::vector<T> cpu_result(size);
@@ -157,8 +159,8 @@ void test_matrix_multiply() {
         d_lhs.reset(size);
         d_rhs.reset(size);
         d_result.reset(size);
-        cuda::memcpy(d_lhs, lhs.data(), size * sizeof(T));
-        cuda::memcpy(d_rhs, rhs.data(), size * sizeof(T));
+        cuda::memcpy(d_lhs, lhs.data());
+        cuda::memcpy(d_rhs, rhs.data());
     });
     std::cout << "GPU Preparation Time: " << to_milliseconds(gpu_prep_time).count() << "ms" << std::endl;
 
@@ -172,7 +174,7 @@ void test_matrix_multiply() {
     });
 
     std::vector<T> gpu_result(size);
-    cuda::memcpy(&gpu_result[0], d_result, size * sizeof(T));
+    cuda::memcpy(&gpu_result[0], d_result);
     std::cout << "GPU Time: " << to_milliseconds(gpu_time).count() << "ms" << std::endl;    
     
     auto pr = check_result(std::begin(cpu_result), std::end(cpu_result), std::begin(gpu_result), 0.001);
@@ -183,15 +185,15 @@ void test_matrix_multiply() {
         std::cout << "Mismatch: "<< *pr.first << " " << *pr.second << std::endl;
     }
 
-    cuda::memset(d_result, 0, size * sizeof(T));
+    cuda::memset(d_result, 0, size);
     cuda::device_synchronize();
 
-    cuda::cublas_handle handle; /* declared outside because lazy initialization screws with the benchmarks */
+    cuda::cublas_context handle; /* declared outside because lazy initialization screws with the benchmarks */
     auto cublas_time = benchmark([&handle, &d_lhs, &d_rhs, &d_result]() {
         cublas::matrix_multiply(handle, d_lhs.get(), d_rhs.get(), d_result.get(), n);
         cuda::device_synchronize();
     });
-    cuda::memcpy(&gpu_result[0], d_result, size * sizeof(T));
+    cuda::memcpy(&gpu_result[0], d_result);
     std::cout << "CUBLAS Time: " << to_milliseconds(cublas_time).count() << "ms" << std::endl;    
     
     pr = check_result(std::begin(cpu_result), std::end(cpu_result), std::begin(gpu_result), T(0.02));
@@ -209,8 +211,8 @@ void test_matrix_add() {
     constexpr int n = 1 << 14, size = n * n;
 
     std::vector<T> lhs(size), rhs(size);
-    random_fill(lhs);
-    random_fill(rhs);
+    random_fill(std::begin(lhs), std::end(lhs));
+    random_fill(std::begin(rhs), std::end(rhs));
 
     std::vector<T> cpu_result(size);
     auto cpu_time = benchmark([&lhs, &rhs, &cpu_result] () {
@@ -223,8 +225,8 @@ void test_matrix_add() {
         d_lhs.reset(size);
         d_rhs.reset(size);
         d_result.reset(size);
-        cuda::memcpy(d_lhs, lhs.data(), size * sizeof(T));
-        cuda::memcpy(d_rhs, rhs.data(), size * sizeof(T));
+        cuda::memcpy(d_lhs, lhs.data());
+        cuda::memcpy(d_rhs, rhs.data());
     });
     std::cout << "GPU Preparation Time: " << to_milliseconds(gpu_prep_time).count() << "ms" << std::endl;
 
@@ -233,26 +235,26 @@ void test_matrix_add() {
         cuda::device_synchronize();
     });
     std::vector<T> gpu_result(size);
-    cuda::memcpy(&gpu_result[0], d_result, size * sizeof(T));
+    cuda::memcpy(&gpu_result[0], d_result);
     std::cout << "GPU Time: " << to_milliseconds(gpu_time).count() << "ms" << std::endl;    
     
     auto pr = check_result(std::begin(cpu_result), std::end(cpu_result), std::begin(gpu_result), T(0.02));
-    bool match = pr.first == std::end(cpu_result);
+    bool match = (pr.first == std::end(cpu_result));
     std::cout << "CPU and GPU output " << (match ? "match" : "do not match") << std::endl;
     if (!match) {
         std::cout << std::setprecision(std::numeric_limits<T>::digits10 + 1);
         std::cout << "Mismatch: "<< *pr.first << " " << *pr.second << std::endl;
     }
 
-    cuda::memset(d_result, 0, size * sizeof(T));
+    cuda::memset(d_result, 0, size);
     cuda::device_synchronize();
 
-    cuda::cublas_handle handle; /* declared outside because lazy initialization screws with the benchmarks */
+    cuda::cublas_context handle; /* declared outside because lazy initialization screws with the benchmarks */
     auto cublas_time = benchmark([&handle, &d_lhs,&d_rhs, &d_result]() {
         cublas::matrix_add(handle, d_lhs.get(), d_rhs.get(), d_result.get(), n, n);
         cuda::device_synchronize();
     });
-    cuda::memcpy(&gpu_result[0], d_result, size * sizeof(T));
+    cuda::memcpy(&gpu_result[0], d_result);
     std::cout << "CUBLAS Time: " << to_milliseconds(cublas_time).count() << "ms" << std::endl;    
     
     pr = check_result(std::begin(cpu_result), std::end(cpu_result), std::begin(gpu_result), T(0.02));
@@ -270,8 +272,8 @@ void test_vector_add() {
     constexpr int N = 1 << 26;
 
     std::vector<T> lhs(N), rhs(N);
-    random_fill(lhs);
-    random_fill(rhs);
+    random_fill(std::begin(lhs), std::end(lhs));
+    random_fill(std::begin(rhs), std::end(rhs));
 
     std::vector<T> cpu_result(N);
     auto cpu_time = benchmark([&lhs, &rhs, &cpu_result] () {
@@ -284,8 +286,8 @@ void test_vector_add() {
         d_lhs.reset(N);
         d_rhs.reset(N);
         d_result.reset(N);
-        cuda::memcpy(d_lhs, lhs.data(), N * sizeof(T));
-        cuda::memcpy(d_rhs, rhs.data(), N * sizeof(T));
+        cuda::memcpy(d_lhs, lhs.data());
+        cuda::memcpy(d_rhs, rhs.data());
     });
     std::cout << "GPU Preparation Time: " << to_milliseconds(gpu_prep_time).count() << "ms" << std::endl;
 
@@ -294,7 +296,7 @@ void test_vector_add() {
         cuda::device_synchronize();
     });
     std::vector<T> gpu_result(N);
-    cuda::memcpy(&gpu_result[0], d_result, N * sizeof(T));
+    cuda::memcpy(&gpu_result[0], d_result);
     std::cout << "GPU Time: " << to_milliseconds(gpu_time).count() << "ms" << std::endl;    
     
     auto pr = check_result(std::begin(cpu_result), std::end(cpu_result), std::begin(gpu_result), T(0.02));
@@ -303,6 +305,70 @@ void test_vector_add() {
     if (!match) {
         std::cout << std::setprecision(std::numeric_limits<T>::digits10 + 1);
         std::cout << "Mismatch: "<< *pr.first << " " << *pr.second << std::endl;
+    }
+}
+
+void test_data_transfer() {
+    using T = float;
+
+    /* testing fill & copy one after another might affect the results of the later 
+    ** hence, we restrict the tests to either fill or copy at a time
+    */
+    bool test_fill = false;
+
+    constexpr int size = 1 << 29;
+    std::cout << "sample size: " << (size * sizeof(T)) / 1024 / 1024  << "MB\n\n";
+
+    std::cout << "pageable memory:\n";
+    {
+        std::vector<T> sample;
+        auto allocation_time = benchmark([&sample](){
+            sample.resize(size);
+        });
+        std::cout << "allocation time = " << to_milliseconds(allocation_time).count() << "ms\n";
+
+        switch (test_fill) {
+            case true: {
+                auto fill_time = benchmark([&sample]() {
+                    std::fill(std::begin(sample), std::end(sample), T(100.0));
+                });
+                std::cout << "fill time = " << to_milliseconds(fill_time).count() << "ms\n";
+                break;
+            }
+            case false: {
+                cuda::managed_ptr<T> dest(size);
+                auto copy_time = benchmark([&sample, &dest]() {
+                    cuda::memcpy(dest, sample.data());
+                });
+                std::cout << "copy time = " << to_milliseconds(copy_time).count() << "ms\n";
+            }
+        }
+    }
+
+    std::cout << "pinned memory:\n";
+    {
+        std::vector<T, cuda::pinned_allocator<T>> sample;
+        auto allocation_time = benchmark([&sample](){
+            sample.resize(size);
+        });
+        std::cout << "allocation time = " << to_milliseconds(allocation_time).count() << "ms\n";
+
+        switch (test_fill) {
+            case true: {
+                auto fill_time = benchmark([&sample]() {
+                    std::fill(std::begin(sample), std::end(sample), T(100.0));
+                });
+                std::cout << "fill time = " << to_milliseconds(fill_time).count() << "ms\n";
+                break;
+            }
+            case false: {
+                cuda::managed_ptr<T> dest(size);
+                auto copy_time = benchmark([&sample, &dest]() {
+                    cuda::memcpy(dest, sample.data());
+                });
+                std::cout << "copy time = " << to_milliseconds(copy_time).count() << "ms\n";
+            }
+        }
     }
 }
 
@@ -315,16 +381,21 @@ int main() {
     CHECK_CUDA(cudaSetDevice(dev));
     CHECK_CUDA(cudaFree(0)); /* establish context beforehand so that the benchmarks are not disturbed */
 
-    std::cout << "Vector Addition:\n";
+    std::cout << "DATA TRANSFER:\n";
+    test_data_transfer();
+    std::cout << std::endl;
+
+    std::cout << "VECTOR ADDITION:\n";
     test_vector_add();
     std::cout << std::endl;
 
-    std::cout << "Matrix Addition:\n";
+    std::cout << "MATRIX ADDITION:\n";
     test_matrix_add();
     std::cout << std::endl;
 
-    std::cout << "Matrix Multiplication:\n";
+    std::cout << "MATRIX MULTIPLICATION:\n";
     test_matrix_multiply();
+    std::cout << std::endl;
 
     CHECK_CUDA(cudaDeviceReset());
     return 0;
