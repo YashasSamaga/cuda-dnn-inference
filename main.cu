@@ -52,7 +52,8 @@ namespace cpu {
 /* custom gpu implementations */
 namespace gpu {
     template <class T>
-    __global__ void vector_add(const T* first1, const T* first2, T* d_first, std::size_t N) {
+    __global__ void vector_add(const cuda::span<T> first1, const cuda::span<T> first2, cuda::span<T> d_first) {
+		const auto N = d_first.size();
         for(auto i : cuda::grid_stride_range(0, N))
             d_first[i] = first1[i] + first2[i];
     }
@@ -128,7 +129,7 @@ auto check_result(ForwardItr first1, ForwardItr last1, ForwardItr first2, T rati
 
 template <class InputIt>
 void random_fill(InputIt first, InputIt last) {
-    using value_type = typename std::remove_reference<decltype(*first)>::type;
+    using value_type = typename std::iterator_traits<InputIt>::value_type;
 
     static std::random_device rd;
     static std::mt19937 rng(rd());
@@ -292,7 +293,7 @@ void test_vector_add() {
     std::cout << "GPU Preparation Time: " << to_milliseconds(gpu_prep_time).count() << "ms" << std::endl;
 
     auto gpu_time = benchmark([&d_lhs,&d_rhs, &d_result]() {
-        cuda::launch_kernel(gpu::vector_add<T>, d_lhs.get(), d_rhs.get(), d_result.get(), N);
+        cuda::launch_kernel(gpu::vector_add<T>, d_lhs, d_rhs, d_result);
         cuda::device_synchronize();
     });
     std::vector<T> gpu_result(N);
@@ -372,6 +373,44 @@ void test_data_transfer() {
     }
 }
 
+void test_cuda_memory() {
+    using T = float;
+
+    static_assert(std::is_trivial<cuda::device_raw_ptr<T>>::value, "");
+    static_assert(std::is_literal_type<cuda::device_raw_ptr<T>>::value, "");
+
+    constexpr T* constexpr_raw = nullptr;
+    constexpr cuda::device_raw_ptr<T> constexpr_default_ptr(nullptr), 
+                                      constexpr_nullptr_ptr(nullptr),
+                                      constexpr_ptr(constexpr_raw);
+    static_assert(constexpr_default_ptr.get() == nullptr, "");
+    static_assert(constexpr_nullptr_ptr.get() == nullptr, "");
+    static_assert(constexpr_ptr.get() == constexpr_raw, "");
+
+    static_assert(static_cast<bool>(constexpr_default_ptr) == false, "");
+    static_assert(static_cast<bool>(constexpr_default_ptr) != true, "");
+
+    /* MSVC finds the operator== declaration via ADL but doesn't find definition
+       which is with the declaration. Amazing. */
+    //static_assert(constexpr_default_ptr == constexpr_nullptr_ptr, "");
+    //static_assert(constexpr_default_ptr - constexpr_nullptr_ptr == 0, "");
+
+    T* raw = constexpr_raw;
+    cuda::device_raw_ptr<T> default_ptr(nullptr), ptr(raw);
+    assert(default_ptr.get() == nullptr);
+    assert(ptr.get() == raw);
+    ptr = nullptr;
+    ptr = raw;
+    ptr = default_ptr;
+    
+    cuda::device_raw_ptr<float[]> extent_ptr(raw);
+    raw = extent_ptr.get();
+
+
+    const cuda::device_raw_ptr<T> const_ptr(raw);
+    const T* const_raw = const_ptr.get();
+}
+
 int main() {
     int dev = 0;
     cudaDeviceProp properties;
@@ -380,6 +419,8 @@ int main() {
 
     CHECK_CUDA(cudaSetDevice(dev));
     CHECK_CUDA(cudaFree(0)); /* establish context beforehand so that the benchmarks are not disturbed */
+
+    test_cuda_memory();
 
     std::cout << "DATA TRANSFER:\n";
     test_data_transfer();

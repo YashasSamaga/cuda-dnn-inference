@@ -11,95 +11,130 @@
 #include "../utils/operators.hpp"
 
 namespace cuda {
+	template <class T>
+	class span {
+		static_assert(std::is_standard_layout<T>::value, "T must satisfy StandardLayoutType");
+	public:
+		using value_type = std::remove_cv_t<std::remove_extent_t<T>>;
+		using size_type = std::size_t;
+		using difference_type = std::ptrdiff_t;
+		using pointer = std::add_pointer_t<value_type>;
+		using const_pointer = std::add_pointer_t<std::add_const_t<value_type>>;
+		using reference = std::add_lvalue_reference_t<value_type>;
+		using const_reference = std::add_lvalue_reference_t<std::add_const_t<value_type>>;
+
+		constexpr span() noexcept = default;
+		__host__ __device__ constexpr span(pointer first, pointer last) noexcept : ptr{ first }, sz{ last - first } { }
+		__host__ __device__ constexpr span(pointer first, size_type count) noexcept : ptr{ first }, sz{ count } { }
+
+		__device__ constexpr reference operator[](difference_type index) { return ptr[index]; }
+		__device__ constexpr const_reference operator[](difference_type index) const { return ptr[index]; }
+
+		__host__ __device__ pointer data() noexcept { return ptr; }
+		__host__ __device__ const_pointer data() const noexcept { return ptr; }
+
+		__host__ __device__ size_type size() const noexcept { return sz; }
+
+	private:
+		pointer ptr;
+		std::size_t sz;
+	};
+
     template <class T>
-    class device_raw_ptr : public relational_operators<T> {
+    class device_raw_ptr {
         static_assert(std::is_standard_layout<T>::value, "T must satisfy StandardLayoutType");
     public:
-        using element_type = std::remove_extent_t<T>;
+		using value_type = std::remove_cv_t<std::remove_extent_t<T>>;
+		using difference_type = std::ptrdiff_t;
+		using pointer = std::add_pointer_t<value_type>;
+		using const_pointer = std::add_pointer_t<std::add_const_t<value_type>>;
+		using reference = std::add_lvalue_reference_t<value_type>;
+		using const_reference = std::add_lvalue_reference_t<std::add_const_t<value_type>>;
 
-        constexpr device_raw_ptr() noexcept : ptr{ nullptr } { };
-        constexpr device_raw_ptr(const device_raw_ptr& other) noexcept = default;
-        explicit device_raw_ptr(element_type* ptr_) noexcept : ptr{ ptr_ } { }
-        device_raw_ptr(device_raw_ptr&& other) noexcept : ptr{ other.ptr } { other.reset(); }
+		constexpr device_raw_ptr() = default;
+		__host__ __device__ constexpr explicit device_raw_ptr(pointer ptr_) noexcept : ptr{ ptr_ } { }
 
-        device_raw_ptr& operator=(const device_raw_ptr& other) noexcept { 
-            ptr = other.ptr;
-            return *this;
-        }
+		__host__ __device__ constexpr device_raw_ptr operator=(std::nullptr_t) noexcept { ptr = nullptr; return *this; }
+		__host__ __device__ constexpr device_raw_ptr operator=(pointer ptr_) noexcept { ptr = ptr_; return *this; }
 
-        device_raw_ptr& operator=(device_raw_ptr&& other) noexcept { 
-            ptr = other.ptr;
-            other.reset();
-            return *this;
-        }
+		__host__ __device__ constexpr pointer get() noexcept { return ptr; };
+		__host__ __device__ constexpr const_pointer get() const noexcept { return ptr; }
 
-        void reset() noexcept { ptr = nullptr; }
-        void reset(element_type* ptr_) noexcept { ptr = ptr_; }
+		__device__ constexpr reference operator[](difference_type idx) noexcept { return get()[idx]; }
+		__device__ constexpr const_reference operator[](difference_type idx) const noexcept { return get()[idx]; }
 
-        element_type* get() noexcept { return ptr; };
-        const element_type* get() const noexcept { return ptr; }
+		__device__ constexpr reference operator*() noexcept { return *get(); }
+		__device__ constexpr const_reference operator*() const noexcept { return *get(); }
 
-        friend void swap(device_raw_ptr& lhs, device_raw_ptr& rhs) noexcept {
-            using std::swap;
-            std::swap(lhs.ptr, rhs.ptr);
-        }
+		__device__ constexpr pointer operator->() noexcept { return get(); }
+		__device__ constexpr const_pointer operator->() const noexcept { return get(); }
 
-        explicit operator bool() const noexcept { return ptr; }
+		__host__ __device__ constexpr explicit operator bool() const noexcept { return ptr; }
 
-        device_raw_ptr& operator++() noexcept {
+		__host__ __device__ constexpr device_raw_ptr operator++() noexcept {
             ++ptr;
             return *this;
         }
 
-        device_raw_ptr operator++(int) noexcept {
+		__host__ __device__ constexpr device_raw_ptr operator++(int) noexcept {
             device_raw_ptr tmp(*this);
             ptr++;
             return tmp;
         }
 
-        device_raw_ptr& operator--() noexcept {
+		__host__ __device__ constexpr device_raw_ptr operator--() noexcept {
             --ptr;
             return *this;
         }
 
-        device_raw_ptr operator--(int) noexcept {
+		__host__ __device__ constexpr device_raw_ptr operator--(int) noexcept {
             device_raw_ptr tmp(*this);
             ptr--;
             return tmp;
         }
 
-        device_raw_ptr& operator+=(std::ptrdiff_t offset) noexcept {
+		__host__ __device__ constexpr device_raw_ptr operator+=(std::ptrdiff_t offset) noexcept {
             ptr += offset;
             return *this;
         }
 
-        device_raw_ptr& operator-=(std::ptrdiff_t offset) noexcept {
+		__host__ __device__ constexpr device_raw_ptr operator-=(std::ptrdiff_t offset) noexcept {
             ptr -= offset;
             return *this;
         }
         
-        friend device_raw_ptr& operator+(device_raw_ptr lhs, std::ptrdiff_t offset) noexcept {
-            lhs += offset;
-            return lhs;
+		__host__ __device__ friend constexpr device_raw_ptr operator+(device_raw_ptr lhs, std::ptrdiff_t offset) noexcept {
+            return lhs + offset;
         }
 
-        friend device_raw_ptr& operator-(device_raw_ptr lhs, std::ptrdiff_t offset) noexcept {
-            lhs -= offset;
-            return lhs;
+		__host__ __device__ friend constexpr device_raw_ptr operator-(device_raw_ptr lhs, std::ptrdiff_t offset) noexcept {
+            return lhs - offset;
         }
 
-        /* required by relational_operators base class */
-        friend bool operator==(const device_raw_ptr& lhs, const device_raw_ptr& rhs) noexcept { return lhs.ptr == rhs.ptr; }
-        friend bool operator<(const device_raw_ptr& lhs, const device_raw_ptr& rhs) noexcept { return lhs.ptr < rhs.ptr; }
+		__host__ __device__ friend constexpr difference_type operator-(device_raw_ptr lhs, device_raw_ptr rhs) noexcept {
+            return lhs.ptr - rhs.ptr;
+        }
+
+		__host__ __device__ friend constexpr bool operator==(device_raw_ptr lhs, device_raw_ptr rhs) noexcept { return lhs.ptr == rhs.ptr; }
+		__host__ __device__ friend constexpr bool operator!=(device_raw_ptr lhs, device_raw_ptr rhs) noexcept { return !(lhs == rhs); }
+		__host__ __device__ friend constexpr bool operator<(device_raw_ptr lhs, device_raw_ptr rhs) noexcept { return lhs.ptr < rhs.ptr; }
+		__host__ __device__ friend constexpr bool operator>(device_raw_ptr lhs, device_raw_ptr rhs)  { return rhs < lhs; }
+		__host__ __device__ friend constexpr bool operator<=(device_raw_ptr lhs, device_raw_ptr rhs) { return !(lhs > rhs); }
+		__host__ __device__ friend constexpr bool operator>=(device_raw_ptr lhs, device_raw_ptr rhs) { return !(lhs < rhs); }
+
+		__host__ friend void swap(device_raw_ptr& lhs, device_raw_ptr& rhs) noexcept {
+			using std::swap;
+			swap(lhs.ptr, rhs.ptr);
+		}
 
         template <class U, class V>
-        friend std::basic_ostream<U, V>& operator<<(std::basic_ostream<U, V>& os, const device_raw_ptr& other) {
+        __host__ friend std::basic_ostream<U, V>& operator<<(std::basic_ostream<U, V>& os, const device_raw_ptr other) {
             os << other.get() << " (device)";
             return os;
         }
 
     private:
-        T *ptr;
+        pointer ptr;
     };
 
     template <class T = unsigned char>
@@ -137,10 +172,16 @@ namespace cuda {
     class managed_ptr : public equality_operators<managed_ptr<T>> {
         static_assert(std::is_standard_layout<T>::value, "T must satisfy StandardLayoutType");
     public:
-        using element_type = std::remove_extent_t<T>;
+		using value_type = std::remove_cv_t<std::remove_extent_t<T>>;
+		using size_type = std::size_t;
+		using difference_type = std::ptrdiff_t;
+		using pointer = std::add_pointer_t<value_type>;
+		using const_pointer = std::add_pointer_t<std::add_const_t<value_type>>;
+		using reference = std::add_lvalue_reference_t<value_type>;
+		using const_reference = std::add_lvalue_reference_t<std::add_const_t<value_type>>;
 
-        constexpr managed_ptr() noexcept : wrapped{ nullptr }, n{ 0 } { }
-        constexpr managed_ptr(const managed_ptr&) noexcept = default;
+        managed_ptr() noexcept : wrapped{ nullptr }, n{ 0 } { }
+        managed_ptr(const managed_ptr&) noexcept = default;
         managed_ptr(managed_ptr&& other) noexcept : wrapped{ other.ptr }, n{ other.n } {
             other.reset();
         }
@@ -148,8 +189,8 @@ namespace cuda {
         managed_ptr(std::size_t count) {
             assert(count > 0);
 
-            element_type* temp = nullptr;
-            CHECK_CUDA(cudaMalloc(&temp, count * sizeof(element_type)));
+            pointer temp = nullptr;
+            CHECK_CUDA(cudaMalloc(&temp, count * sizeof(value_type)));
             wrapped.reset(temp, [](auto ptr) {
                 if (ptr != nullptr) {
                     CHECK_CUDA(cudaFree(ptr));
@@ -170,8 +211,8 @@ namespace cuda {
             return *this;
         }
 
-        std::size_t size() const noexcept { return n; }
-        std::size_t use_count() const noexcept { return wrapped.use_count(); }
+		size_type size() const noexcept { return n; }
+		size_type use_count() const noexcept { return wrapped.use_count(); }
 
         void reset() noexcept { wrapped.reset(); n = 0; }
         void reset(std::size_t count) { 
@@ -179,18 +220,19 @@ namespace cuda {
             swap(tmp, *this);
         }
 
-        element_type* get() noexcept { return wrapped.get(); }
-        const element_type* get() const noexcept { return wrapped.get(); }
-
-        friend void swap(managed_ptr& lhs, managed_ptr& rhs) noexcept { 
-            using std::swap;
-            std::swap(lhs.wrapped, rhs.wrapped);
-            std::swap(lhs.n, rhs.n);
-        }
+        pointer get() noexcept { return wrapped.get(); }
+        const_pointer get() const noexcept { return wrapped.get(); }
 
         explicit operator bool() const noexcept { return wrapped; }
+		operator span<T>() { return span<T>(wrapped.get(), n); }
 
         friend bool operator==(const managed_ptr& lhs, const managed_ptr& rhs) noexcept { return lhs.ptr == rhs.ptr; }
+
+		friend void swap(managed_ptr& lhs, managed_ptr& rhs) noexcept {
+			using std::swap;
+			std::swap(lhs.wrapped, rhs.wrapped);
+			std::swap(lhs.n, rhs.n);
+		}
 
         template <class U, class V>
         friend std::basic_ostream<U, V>& operator<<(std::basic_ostream<U, V>& os, const managed_ptr& other) {
@@ -198,7 +240,7 @@ namespace cuda {
             return os;
         }
 
-    protected:
+    private:
         std::shared_ptr<T> wrapped;
         std::size_t n;
     };
