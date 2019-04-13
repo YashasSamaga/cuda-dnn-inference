@@ -59,9 +59,9 @@ namespace gpu {
     }
 
     template <class T>
-    __global__ void matrix_add(const cuda::device_ptr<T> first, const cuda::device_ptr<T> second, cuda::device_ptr<T> result, std::size_t nx, std::size_t ny) {
-        for (auto idx : cuda::grid_stride_range(0, nx * ny)) {
-            result[idx] = first[idx] + second[idx];
+    __global__ void matrix_add(const cuda::device_ptr<const T> first, const cuda::device_ptr<const T> second, cuda::device_ptr<T> result, std::size_t nx, std::size_t ny) {
+        for (auto i : cuda::grid_stride_range(0, nx * ny)) {
+            result[i] = first[i] + second[i];
         }
     }
 
@@ -87,8 +87,8 @@ namespace cublas {
     void matrix_multiply(cuda::cublas_context& handle, const cuda::device_ptr<T> first, const cuda::device_ptr<T> second, cuda::device_ptr<T> result, std::size_t n) {
         static_assert(std::is_same<T, float>::value, "uses cublasSgemm; hence, requires T to be float");
 
-        int in = static_cast<int>(n);
-        const float alpha = 1.0, beta = 0.0;
+        const auto in = static_cast<int>(n);
+        const auto alpha = 1.0f, beta = 0.0f;
         cublasSgemm(handle.get(), CUBLAS_OP_T, CUBLAS_OP_T,
                     in, in, in,
                     &alpha,
@@ -103,8 +103,9 @@ namespace cublas {
     void matrix_add(cuda::cublas_context& handle, const cuda::device_ptr<T> first, const cuda::device_ptr<T> second, cuda::device_ptr<T> result, std::size_t nx, std::size_t ny) {
         static_assert(std::is_same<T, float>::value, "uses cublasSgeam; hence, requires T to be float");
 
-        int inx = static_cast<int>(nx), iny = static_cast<int>(ny);
-        const float alpha = 1.0, beta = 1.0;
+        const auto inx = static_cast<int>(nx),
+				   iny = static_cast<int>(ny);
+        const auto alpha = 1.0f, beta = 1.0f;
         cublasSgeam(handle.get(), CUBLAS_OP_N, CUBLAS_OP_N,
                     iny, inx,
                     &alpha,
@@ -135,7 +136,7 @@ void random_fill(InputIt first, InputIt last) {
     using value_type = typename std::iterator_traits<InputIt>::value_type;
 
     static std::random_device rd;
-    static std::mt19937 rng(rd());
+	static std::mt19937 rng{ rd() };
     static std::uniform_real_distribution<value_type> dist(1.0, 1000.0);
     std::generate(first, last, []() { return dist(rng); });
 }
@@ -171,8 +172,8 @@ void test_matrix_multiply() {
 
     /* run custom GPU kernel */
     auto gpu_time = benchmark([&d_lhs, &d_rhs, &d_result]() {
-        dim3 block(32, 32);
-        dim3 grid((n + block.x - 1)/block.x, (n + block.y - 1)/block.y);
+        auto block = dim3(32, 32);
+        auto grid = dim3((n + block.x - 1)/block.x, (n + block.y - 1)/block.y);
         cuda::launch_kernel(gpu::matrix_multiply<T>, grid, block, d_lhs.get(), d_rhs.get(), d_result.get(), n);
         /* cuda::launch_kernel(gpu::matrix_multiply<T>, d_lhs.get(), d_rhs.get(), d_result.get(), n); */
         cuda::device_synchronize();
@@ -183,14 +184,14 @@ void test_matrix_multiply() {
     std::cout << "GPU Time: " << to_milliseconds(gpu_time).count() << "ms" << std::endl;    
     
     auto pr = check_result(std::begin(cpu_result), std::end(cpu_result), std::begin(gpu_result), 0.001);
-    bool match = (pr.first == std::end(cpu_result));
+    auto match = (pr.first == std::end(cpu_result));
     std::cout << "CPU and GPU output " << (match ? "match" : "do not match") << std::endl;
     if (!match) {
         std::cout << std::setprecision(std::numeric_limits<T>::digits10 + 1);
         std::cout << "Mismatch: "<< *pr.first << " " << *pr.second << std::endl;
     }
 
-    cuda::memset(d_result, 0, size);
+    cuda::memset(d_result, 0);
     cuda::device_synchronize();
 
     cuda::cublas_context handle; /* declared outside because lazy initialization screws with the benchmarks */
@@ -244,14 +245,14 @@ void test_matrix_add() {
     std::cout << "GPU Time: " << to_milliseconds(gpu_time).count() << "ms" << std::endl;    
     
     auto pr = check_result(std::begin(cpu_result), std::end(cpu_result), std::begin(gpu_result), T(0.02));
-    bool match = (pr.first == std::end(cpu_result));
+    auto match = (pr.first == std::end(cpu_result));
     std::cout << "CPU and GPU output " << (match ? "match" : "do not match") << std::endl;
     if (!match) {
         std::cout << std::setprecision(std::numeric_limits<T>::digits10 + 1);
         std::cout << "Mismatch: "<< *pr.first << " " << *pr.second << std::endl;
     }
 
-    cuda::memset(d_result, 0, size);
+    cuda::memset(d_result, 0);
     cuda::device_synchronize();
 
     cuda::cublas_context handle; /* declared outside because lazy initialization screws with the benchmarks */
@@ -305,7 +306,7 @@ void test_vector_add() {
     std::cout << "GPU Time: " << to_milliseconds(gpu_time).count() << "ms" << std::endl;    
     
     auto pr = check_result(std::begin(cpu_result), std::end(cpu_result), std::begin(gpu_result), T(0.02));
-    bool match = (pr.first == std::end(cpu_result));
+    auto match = (pr.first == std::end(cpu_result));
     std::cout << "CPU and GPU output " << (match ? "match" : "do not match") << std::endl;
     if (!match) {
         std::cout << std::setprecision(std::numeric_limits<T>::digits10 + 1);
@@ -377,44 +378,6 @@ void test_data_transfer() {
     }
 }
 
-void test_cuda_memory() {
-    using T = float;
-
-    static_assert(std::is_trivial<cuda::device_ptr<T>>::value, "");
-    static_assert(std::is_literal_type<cuda::device_ptr<T>>::value, "");
-
-    constexpr T* constexpr_raw = nullptr;
-    constexpr cuda::device_ptr<T> constexpr_default_ptr(nullptr), 
-                                      constexpr_nullptr_ptr(nullptr),
-                                      constexpr_ptr(constexpr_raw);
-    static_assert(constexpr_default_ptr.get() == nullptr, "");
-    static_assert(constexpr_nullptr_ptr.get() == nullptr, "");
-    static_assert(constexpr_ptr.get() == constexpr_raw, "");
-
-    static_assert(static_cast<bool>(constexpr_default_ptr) == false, "");
-    static_assert(static_cast<bool>(constexpr_default_ptr) != true, "");
-
-    /* MSVC finds the operator== declaration via ADL but doesn't find the definition
-       which is with the declaration. Amazing. */
-    //static_assert(constexpr_default_ptr == constexpr_nullptr_ptr, "");
-    //static_assert(constexpr_default_ptr - constexpr_nullptr_ptr == 0, "");
-
-    T* raw = constexpr_raw;
-    cuda::device_ptr<T> default_ptr(nullptr), ptr(raw);
-    assert(default_ptr.get() == nullptr);
-    assert(ptr.get() == raw);
-    ptr = nullptr;
-    ptr = raw;
-    ptr = default_ptr;
-    
-    cuda::device_ptr<float[]> extent_ptr(raw);
-    raw = extent_ptr.get();
-
-
-    const cuda::device_ptr<T> const_ptr(raw);
-    const T* const_raw = const_ptr.get();
-}
-
 int main() {
     int dev = 0;
     cudaDeviceProp properties;
@@ -423,8 +386,6 @@ int main() {
 
     CHECK_CUDA(cudaSetDevice(dev));
     CHECK_CUDA(cudaFree(0)); /* establish context beforehand so that the benchmarks are not disturbed */
-
-    test_cuda_memory();
 
     std::cout << "DATA TRANSFER:\n";
     test_data_transfer();

@@ -3,6 +3,7 @@
 
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
+#include <cudnn.h>
 
 #include <sstream>
 #include <exception>
@@ -11,6 +12,7 @@
 
 #define CHECK_CUDA(call) cuda::detail::check_cuda_status((call), __FILE__, __LINE__)  
 #define CHECK_CUBLAS(call) cuda::detail::check_cublas_status((call), __FILE__, __LINE__) 
+#define CHECK_CUDNN(call) cuda::detail::check_cudnn_status((call), __FILE__, __LINE__)
 
 namespace cuda {
     namespace detail {
@@ -33,6 +35,11 @@ namespace cuda {
     };
 
     class cublas_exception : public detail::exception {
+    public:
+        using detail::exception::exception;
+    };
+
+    class cudnn_exception : public detail::exception {
     public:
         using detail::exception::exception;
     };
@@ -67,6 +74,15 @@ namespace cuda {
                 stream << "CUBLAS Error: " << __FILE__ << ":" << __LINE__ << '\n';       
                 stream << cublasGetErrorString(error) << '\n';                           
                 throw cuda::cublas_exception(stream.str());                                   
+            }
+        }
+
+        void check_cudnn_status(cudnnStatus_t error, std::string filename, std::size_t lineno) {
+            if (error != cudaSuccess) {
+                std::ostringstream stream;
+                stream << "CUDA Error: " << __FILE__ << ":" << __LINE__ << '\n';
+                stream << cudnnGetErrorString(error) << '\n';
+                throw cuda::cudnn_exception(stream.str());
             }
         }
     }
