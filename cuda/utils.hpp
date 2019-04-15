@@ -3,20 +3,49 @@
 
 #include <cuda_runtime.h>
 #include "error.hpp"
+#include "stream.hpp"
 
 namespace cuda {
-    /* TODO execeution_policy */
+    struct execution_policy {
+        execution_policy(dim3 grid_size, dim3 block_size) 
+            : grid{ grid_size }, block{ block_size }, sharedMem{ 0 }, stream{ 0 } { }
+
+        execution_policy(dim3 grid_size, dim3 block_size, std::size_t shared_mem)
+            : grid{ grid_size }, block{ block_size }, sharedMem{ shared_mem }, stream{ 0 } { }
+
+        execution_policy(dim3 grid_size, dim3 block_size, cudaStream_t strm)
+            : grid{ grid_size }, block{ block_size }, sharedMem{ 0 }, stream{ strm } { }
+
+        execution_policy(dim3 grid_size, dim3 block_size, std::size_t shared_mem, cudaStream_t strm)
+            : grid{ grid_size }, block{ block_size }, sharedMem{ shared_mem }, stream{ strm } { }
+
+        dim3 grid;
+        dim3 block;
+        std::size_t sharedMem;
+        cudaStream_t stream;
+    };
+
+    template <class Kernel>
+    execution_policy make_optimal_policy(Kernel kernel, std::size_t sharedMem = 0, cudaStream_t stream = 0) {
+        int grid_size, block_size;
+        CHECK_CUDA(cudaOccupancyMaxPotentialBlockSize(&grid_size, &block_size, kernel, sharedMem));
+        return execution_policy(grid_size, block_size, sharedMem, stream);
+    }
 
     template <class Kernel, typename ...Args>
     void launch_kernel(Kernel kernel, Args ...args) {
-        int grid_size, block_size;
-        CHECK_CUDA(cudaOccupancyMaxPotentialBlockSize(&grid_size, &block_size, kernel));
-        kernel <<<grid_size, block_size >>> (std::forward<Args>(args)...);
+        auto policy = make_optimal_policy(kernel);
+        kernel <<<policy.grid, policy.block>>> (std::forward<Args>(args)...);
     }
 
     template <class Kernel, typename ...Args>
     void launch_kernel(Kernel kernel, dim3 grid, dim3 block, Args ...args) {
-        kernel <<<grid, block >>> (std::forward<Args>(args)...);
+        kernel <<<grid, block>>> (std::forward<Args>(args)...);
+    }
+
+    template <class Kernel, typename ...Args>
+    void launch_kernel(Kernel kernel, execution_policy policy, Args ...args) {
+        kernel <<<policy.grid, policy.block, policy.sharedMem, policy.stream >>> (std::forward<Args>(args)...);
     }
 
     void device_synchronize() { CHECK_CUDA(cudaDeviceSynchronize()); }

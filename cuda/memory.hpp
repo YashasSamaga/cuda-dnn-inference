@@ -7,6 +7,7 @@
 #include <type_traits>
 
 #include "error.hpp"
+#include "stream.hpp"
 
 namespace cuda {
     /** @brief provides type-safe device pointer
@@ -33,7 +34,7 @@ namespace cuda {
         static_assert(std::is_standard_layout<T>::value, "T must satisfy StandardLayoutType");
 
     public:
-        using element_type = T;
+        using element_type = typename std::remove_extent<T>::type;
         using difference_type = std::ptrdiff_t;
         using pointer = typename std::add_pointer<element_type>::type;
         using reference = typename std::add_lvalue_reference<element_type>::type;
@@ -120,20 +121,21 @@ namespace cuda {
         pointer ptr;
     };
 
-    template <class T = unsigned char>
-    void memcpy(void *dest, const void *src, std::size_t n) {
+    /* default stream */
+    template <class T>
+    void memcpy(T *dest, const T *src, std::size_t n) {
         assert(n > 0);
         cudaMemcpy(dest, src, n * sizeof(T), cudaMemcpyDefault);
     }
 
     template <class T>
-    void memcpy(void *dest, const device_ptr<T> src, std::size_t n) {
+    void memcpy(T *dest, const device_ptr<T> src, std::size_t n) {
         assert(n > 0);
         CHECK_CUDA(cudaMemcpy(dest, src.get(), n * sizeof(T), cudaMemcpyDefault));
     }
 
     template <class T>
-    void memcpy(const device_ptr<T> dest, const void* src, std::size_t n) {
+    void memcpy(const device_ptr<T> dest, const T* src, std::size_t n) {
         assert(n > 0);
         CHECK_CUDA(cudaMemcpy(dest.get(), src, n * sizeof(T), cudaMemcpyDefault));
     }
@@ -149,6 +151,32 @@ namespace cuda {
         assert(n > 0);
         assert(ch < 128 && ch >= -128);
         CHECK_CUDA(cudaMemset(dest.get(), ch, n * sizeof(T)));
+    }
+
+    /* stream based */
+    template <class T>
+    void memcpy(T *dest, const device_ptr<T> src, std::size_t n, const stream& str) {
+        assert(n > 0);
+        CHECK_CUDA(cudaMemcpyAsync(dest, src.get(), n * sizeof(T), cudaMemcpyDefault, str));
+    }
+
+    template <class T>
+    void memcpy(const device_ptr<T> dest, const T* src, std::size_t n, const stream& str) {
+        assert(n > 0);
+        CHECK_CUDA(cudaMemcpyAsync(dest.get(), src, n * sizeof(T), cudaMemcpyDefault, str));
+    }
+
+    template <class T>
+    void memcpy(const device_ptr<T> dest, const device_ptr<T> src, std::size_t n, const stream& str) {
+        assert(n > 0);
+        CHECK_CUDA(cudaMemcpyAsync(dest.get(), src.get(), n * sizeof(T), cudaMemcpyDefault, str));
+    }
+
+    template <class T>
+    void memset(const device_ptr<T> dest, int ch, std::size_t n, const stream& str) {
+        assert(n > 0);
+        assert(ch < 128 && ch >= -128);
+        CHECK_CUDA(cudaMemsetAsync(dest.get(), ch, n * sizeof(T), str));
     }
 
     /** @brief provides non-owning mutable view for device arrays
@@ -201,9 +229,10 @@ namespace cuda {
         static_assert(std::is_standard_layout<T>::value, "T must satisfy StandardLayoutType");
 
     public:
-        using value_type = typename std::remove_cv<std::remove_extent_t<T>>::type;
+        using value_type = typename std::remove_cv<std::remove_extent<T>::type>::type;
         using size_type = std::size_t;
         using pointer = device_ptr<value_type>;
+        using const_pointer = device_ptr<std::add_const<value_type>::type>;
         using difference_type = typename pointer::difference_type;
 
         managed_ptr() noexcept : wrapped{ nullptr }, n{ 0 } { }
@@ -267,12 +296,12 @@ namespace cuda {
     };
 
     template <class T>
-    void memcpy(void *dest, managed_ptr<T>& src) {
+    void memcpy(T *dest, managed_ptr<T>& src) {
         memcpy(dest, src.get(), src.size());
     }
 
     template <class T>
-    void memcpy(managed_ptr<T>& dest, const void* src) {
+    void memcpy(managed_ptr<T>& dest, const T* src) {
         memcpy(dest.get(), src, dest.size());
     }
 
@@ -284,6 +313,26 @@ namespace cuda {
     template <class T>
     void memset(managed_ptr<T>& dest, int ch) {
         memset(dest.get(), ch, dest.size());
+    }
+
+    template <class T>
+    void memcpy(T *dest, managed_ptr<T>& src, const stream& str) {
+        memcpy(dest, src.get(), src.size(), str);
+    }
+
+    template <class T>
+    void memcpy(managed_ptr<T>& dest, T* src, const stream& str) {
+        memcpy(dest.get(), src, dest.size(), str);
+    }
+
+    template <class T>
+    void memcpy(managed_ptr<T>& dest, managed_ptr<T>& src, const stream& str) {
+        memcpy(dest.get(), src.get(), dest.size(), str);
+    }
+
+    template <class T>
+    void memset(managed_ptr<T>& dest, int ch, const stream& str) {
+        memset(dest.get(), ch, dest.size(), str);
     }
 
     /** @brief provides page-locked host memory for allocator-aware containers
@@ -312,17 +361,17 @@ namespace cuda {
         void deallocate(T* ptr, size_type n) {
             CHECK_CUDA(cudaFreeHost(ptr));
         }
-
-        template<class T1, class T2>
-        friend bool operator==(const pinned_allocator<T1>&, const pinned_allocator<T2>&) noexcept {
-            return true;
-        }
-
-        template<class T1, class T2>
-        friend bool operator!=(const pinned_allocator<T1>& lhs, const pinned_allocator<T2>& rhs) noexcept {
-            return !(lhs == rhs);
-        }
     };
+
+    template<class T1, class T2> inline
+    bool operator==(const pinned_allocator<T1>&, const pinned_allocator<T2>&) noexcept {
+        return true;
+    }
+
+    template<class T1, class T2> inline
+    bool operator!=(const pinned_allocator<T1>& lhs, const pinned_allocator<T2>& rhs) noexcept {
+        return !(lhs == rhs);
+    }
 }
 
 #endif /* CUDA_MEMORY_HPP */

@@ -6,6 +6,7 @@
 #include "cuda/utils.hpp"
 #include "cuda/memory.hpp"
 #include "cuda/cublas.hpp"
+#include "cuda/data.hpp"
 
 #include "benchmark.hpp"
 
@@ -14,11 +15,12 @@
 #include <random>
 #include <vector>
 #include <iomanip>
+#include <memory>
 
 /* cpu implementations */
 namespace cpu {
     template <class T>
-    void vector_add(const T* first1, const T* first2, T* d_first, std::size_t N) {
+    void vector_add(const T* __restrict first1, const T* __restrict first2, T* __restrict d_first, std::size_t N) {
         for (std::size_t i = 0; i < N; i++)
             d_first[i] = first1[i] + first2[i];
     }
@@ -124,8 +126,8 @@ auto to_milliseconds(const T& duration) {
 /* finds mismatches in two ranges
 ** a mismatach is obtained when the two corresponding values go beyond the specified relative error
 */
-template <class T, class ForwardItr>
-auto check_result(ForwardItr first1, ForwardItr last1, ForwardItr first2, T ratio) {
+template <class T, class ForwardItr1, class ForwardItr2>
+auto check_result(ForwardItr1 first1, ForwardItr1 last1, ForwardItr2 first2, T ratio) {
     return std::mismatch(first1, last1, first2, [ratio](auto lhs, auto rhs) {
         return std::fabs(rhs - lhs) / std::min(rhs, lhs) < ratio;
     });
@@ -378,6 +380,55 @@ void test_data_transfer() {
     }
 }
 
+void test_stream_matrix_add() {
+    using T = float;
+
+    constexpr int n = 1 << 13, size = n * n;
+
+    auto stream = std::make_shared<cuda::stream>();
+
+    cuda::common_data<T> lhs(stream, size), rhs(stream, size), result(stream, size);
+    random_fill(std::begin(lhs), std::end(lhs));
+    random_fill(std::begin(rhs), std::end(rhs));
+
+    std::vector<T> cpu_result(size);
+    auto cpu_time = benchmark([&lhs, &rhs, &cpu_result]() {
+        cpu::matrix_add(lhs.get_host_readonly(), rhs.get_host_readonly(), &cpu_result[0], n, n);
+    });
+    std::cout << "CPU Time: " << to_milliseconds(cpu_time).count() << "ms" << std::endl;
+
+    auto gpu_h2d_time = benchmark([&lhs, &rhs, &result]() {
+        lhs.copy_to_device();
+        rhs.copy_to_device();
+        lhs.synchronize();
+        rhs.synchronize();
+    });    
+    std::cout << "GPU H2D Transfer Time: " << to_milliseconds(gpu_h2d_time).count() << "ms" << std::endl;
+
+    auto gpu_time = benchmark([&lhs, &rhs, &result, &stream]() {
+        auto policy = cuda::make_optimal_policy(gpu::matrix_add<T>, 0, *stream);
+        cuda::launch_kernel(gpu::matrix_add<T>, policy, 
+                            lhs.get_device_readonly(), rhs.get_device_readonly(),
+                            result.get_device_writeable(), n, n);
+        stream->synchronize();
+    });
+    std::cout << "GPU Computation Time: " << to_milliseconds(gpu_time).count() << "ms" << std::endl;
+
+    auto gpu_d2h_time = benchmark([&lhs, &rhs, &result]() {
+        result.copy_to_host();
+        result.synchronize();
+    });
+    std::cout << "GPU D2H Transfer Time: " << to_milliseconds(gpu_d2h_time).count() << "ms" << std::endl;
+
+    auto pr = check_result(std::begin(cpu_result), std::end(cpu_result), std::begin(result), T(0.02));
+    auto match = (pr.first == std::end(cpu_result));
+    std::cout << "CPU and GPU output " << (match ? "match" : "do not match") << std::endl;
+    if (!match) {
+        std::cout << std::setprecision(std::numeric_limits<T>::digits10 + 1);
+        std::cout << "Mismatch: " << *pr.first << " " << *pr.second << std::endl;
+    }
+}
+
 int main() {
     int dev = 0;
     cudaDeviceProp properties;
@@ -388,19 +439,23 @@ int main() {
     CHECK_CUDA(cudaFree(0)); /* establish context beforehand so that the benchmarks are not disturbed */
 
     std::cout << "DATA TRANSFER:\n";
-    test_data_transfer();
+    //test_data_transfer();
     std::cout << std::endl;
 
     std::cout << "VECTOR ADDITION:\n";
-    test_vector_add();
+    //test_vector_add();
     std::cout << std::endl;
 
     std::cout << "MATRIX ADDITION:\n";
-    test_matrix_add();
+   // test_matrix_add();
+    std::cout << std::endl;
+
+    std::cout << "MATRIX ADDITION (using stream)\n";
+    test_stream_matrix_add();
     std::cout << std::endl;
 
     std::cout << "MATRIX MULTIPLICATION:\n";
-    test_matrix_multiply();
+    //test_matrix_multiply();
     std::cout << std::endl;
 
     CHECK_CUDA(cudaDeviceReset());

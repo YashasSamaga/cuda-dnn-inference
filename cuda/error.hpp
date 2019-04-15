@@ -29,6 +29,7 @@ namespace cuda {
         };
     }
     
+    /* TODO store error code */
     class cuda_exception : public detail::exception {
     public:
         using detail::exception::exception;
