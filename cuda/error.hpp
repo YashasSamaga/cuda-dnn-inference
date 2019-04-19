@@ -15,34 +15,32 @@
 #define CHECK_CUDNN(call) cuda::detail::check_cudnn_status((call), __FILE__, __LINE__)
 
 namespace cuda {
-    namespace detail {
-        class exception : public std::exception {
-        public:
-            explicit exception(const char* msg) : what_msg(msg) { }
-            explicit exception(const std::string& msg) : what_msg(msg) { }
-            virtual ~exception() { }
+    class exception : public std::exception {
+    public:
+        explicit exception(const char* msg) : what_msg(msg) { }
+        explicit exception(const std::string& msg) : what_msg(msg) { }
+        virtual ~exception() { }
 
-            const char* what() const noexcept override { return what_msg.c_str(); }
+        const char* what() const noexcept override { return what_msg.c_str(); }
 
-        protected:
-            std::string what_msg;
-        };
-    }
+    protected:
+        std::string what_msg;
+    };
     
     /* TODO store error code */
-    class cuda_exception : public detail::exception {
+    class cuda_exception : public exception {
     public:
-        using detail::exception::exception;
+        using exception::exception;
     };
 
-    class cublas_exception : public detail::exception {
+    class cublas_exception : public exception {
     public:
-        using detail::exception::exception;
+        using exception::exception;
     };
 
-    class cudnn_exception : public detail::exception {
+    class cudnn_exception : public exception {
     public:
-        using detail::exception::exception;
+        using exception::exception;
     };
 
     namespace detail {

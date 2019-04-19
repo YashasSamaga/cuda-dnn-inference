@@ -4,6 +4,8 @@
 class noncopyable {
 public:
     noncopyable() = default;
+    noncopyable(noncopyable&&) = default;
+    noncopyable& operator=(noncopyable&&) = default;
 
 private:
     noncopyable(const noncopyable&);

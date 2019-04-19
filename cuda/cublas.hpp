@@ -1,7 +1,6 @@
 #ifndef CUDA_CUBLAS_HPP
 #define CUDA_CUBLAS_HPP
 
-#include <cuda_runtime.h>
 #include <cublas_v2.h>
 
 #include "error.hpp"

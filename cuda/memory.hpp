@@ -200,7 +200,7 @@ namespace cuda {
         constexpr span() noexcept : ptr{ nullptr }, sz{ 0 } { }
         __host__ __device__ constexpr span(pointer first, pointer last) noexcept : ptr{ first }, sz{ last - first } { }
         __host__ __device__ constexpr span(pointer first, size_type count) noexcept : ptr{ first }, sz{ count } { }
-        
+
         __host__ __device__ constexpr size_type size() const noexcept { return sz; }
         __host__ __device__ constexpr bool empty() const noexcept { return size() == 0; }
 
@@ -211,6 +211,13 @@ namespace cuda {
         pointer ptr;
         std::size_t sz;
     };
+
+    /** @brief provides non-owning immutable view for device arrays
+
+        @sa span
+    */
+    template <class T>
+    using view = span<const T>;
 
     /** @brief provides a smart device pointer and allocation/deallocation routines
 
@@ -274,6 +281,7 @@ namespace cuda {
 
         explicit operator bool() const noexcept { return wrapped; }
         operator span<value_type>() const noexcept { return span<value_type>(pointer(wrapped.get()), n); }
+        operator span<const value_type>() const noexcept { return span<const value_type>(pointer(wrapped.get()), n); }
 
         friend bool operator==(const managed_ptr& lhs, const managed_ptr& rhs) noexcept { return lhs.ptr == rhs.ptr; }
         friend bool operator!=(const managed_ptr& lhs, const managed_ptr& rhs) noexcept { return lhs.ptr != rhs.ptr; }

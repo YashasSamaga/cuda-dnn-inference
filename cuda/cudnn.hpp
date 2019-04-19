@@ -1,7 +1,6 @@
 #ifndef CUDA_CUDNN_HPP
 #define CUDA_CUDNN_HPP
 
-#include <cuda_runtime.h>
 #include <cudnn.h>
 
 #include "error.hpp"

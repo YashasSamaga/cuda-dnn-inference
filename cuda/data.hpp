@@ -18,12 +18,16 @@ namespace cuda {
         using device_pointer = typename managed_ptr<T>::pointer;
         using const_device_pointer = typename managed_ptr<T>::const_pointer;
 
-        common_data() : host_dirty{ false }, device_dirty{ false } { str = std::make_shared<stream>(); };
-        common_data(std::shared_ptr<stream> s) : str{ std::move(s) } { }
-        common_data(std::shared_ptr<stream> s, std::size_t count) : str{ std::move(s) } { reset(count); }
-        common_data(std::size_t count) { reset(count); }
+        common_data() : host_dirty{ false }, device_dirty{ false } { strm = std::make_shared<stream>(); };
+        common_data(common_data&&) = default;
+        common_data(std::shared_ptr<stream> s) : strm{ std::move(s) } { }
+        common_data(std::shared_ptr<stream> s, std::size_t count) : strm{ std::move(s) } { reset(count); }
+        common_data(std::size_t count) { 
+            strm = std::make_shared<stream>();
+            reset(count);
+        }
 
-        common_data& operator=(common_data&& other) noexcept = default;
+        common_data& operator=(common_data&&) = default;
 
         auto begin() {
             host_dirty = true;
@@ -50,6 +54,9 @@ namespace cuda {
 
             device_ptr = std::move(d_tmp);
             host_ptr = std::move(h_tmp);
+
+            host_dirty = false;
+            device_dirty = false;
         }
         
         host_pointer get_host_writeable() {
@@ -68,19 +75,19 @@ namespace cuda {
 
         const_device_pointer get_device_readonly() const {
             return device_ptr.get();
-        }       
+        }
 
         void copy_to_device() const {
            if(host_dirty)
-               memcpy((managed_ptr<T>)device_ptr, host_ptr.get(), *str);
+               memcpy((managed_ptr<T>)device_ptr, host_ptr.get(), *strm);
         }
         
         void copy_to_host() const { 
             if(device_dirty)
-                memcpy(host_ptr.get(), (managed_ptr<T>)device_ptr, *str);
+                memcpy(host_ptr.get(), (managed_ptr<T>)device_ptr, *strm);
         }
 
-        void synchronize() const { str->synchronize(); }
+        void synchronize() const { strm->synchronize(); }
 
         bool is_host_dirty() const { return host_dirty; }
         bool is_device_dirty() const { return device_dirty; }
@@ -96,7 +103,7 @@ namespace cuda {
         }
 
     private:
-        std::shared_ptr<stream> str;
+        std::shared_ptr<stream> strm;
         std::shared_ptr<T> host_ptr;
         managed_ptr<T> device_ptr;
         bool host_dirty, device_dirty;
