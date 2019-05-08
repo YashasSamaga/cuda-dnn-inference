@@ -1,6 +1,8 @@
 #ifndef DNN_NETWORK_HPP
 #define DNN_NETWORK_HPP
 
+#include <iostream>
+
 #include "layers.hpp"
 
 #include "utils/make_unique.hpp"
@@ -17,6 +19,8 @@ namespace dnn {
                 switch (type) {
                 case layer_type::fully_connected:
                     return make_unique<fully_connected<T>>(stream);
+                case layer_type::softmax:
+                    return make_unique<softmax<T>>();
                 }
                 return nullptr;
             };
@@ -27,7 +31,7 @@ namespace dnn {
         }
 
         void forward(const matrix<T>& input, matrix<T>& output) {
-            cuda::tensor<T> input_tensor, output_tensor;
+            cuda::tensor<T> input_tensor(stream), output_tensor(stream);
             input_tensor.resize(1, 1, input.get_cols(), input.get_rows());
 
             /* TODO eliminate redundant copy

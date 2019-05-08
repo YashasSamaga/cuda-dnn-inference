@@ -18,9 +18,9 @@ namespace cuda {
         using size_type = std::size_t;
         using difference_type = std::ptrdiff_t;
         using pointer = device_ptr<value_type>;
-        using const_pointer = device_ptr<std::add_const<value_type>::type>;
+        using const_pointer = device_ptr<typename std::add_const<value_type>::type>;
         using reference = typename std::add_lvalue_reference<value_type>::type;
-        using const_reference = typename std::add_lvalue_reference<std::add_const<value_type>::type>;
+        using const_reference = typename std::add_lvalue_reference<typename std::add_const<value_type>::type>;
         using iterator = pointer;
         using const_iterator = const_pointer;
 

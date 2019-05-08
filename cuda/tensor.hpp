@@ -6,6 +6,7 @@
 #include "cublas.hpp"
 #include "data.hpp"
 #include "error.hpp"
+#include "math.hpp"
 
 namespace cuda {
     template <class T>
@@ -39,6 +40,7 @@ namespace cuda {
         tensor(int height) :
             batch_size{ 1 }, num_chans{ 1 }, width{ 1 }, height{ height }, data(height) { }*/
 
+        auto size() const noexcept { return batch_size * num_chans * width * height; }
         auto get_height() const noexcept { return height; }
         auto get_width() const noexcept { return width; }
         auto get_channels() const noexcept { return num_chans; }
@@ -123,6 +125,22 @@ namespace cuda {
         blas::geam<T>(handle, false, false, dest_nr, dest_nc, 1.0,
             lhs.get_device_readonly(), lhs_nr, 0.0, rhs.get_device_readonly(), rhs_nr,
             result.get_device_writeable(), dest_nr);
+    }
+
+    template <class T>
+    void exp(const tensor<T>& input, tensor<T>& output) {
+        view<T> in_view(input.get_device_readonly(), input.size());
+        span<T> out_span(output.get_device_writeable(), output.size());
+        launch_kernel(cuda::math::exp<T>, in_view, out_span);
+    }
+
+    template <class T>
+    void softmax(const tensor<T>& input, tensor<T>& output) {
+        view<T> in_view(input.get_device_readonly(), input.size());
+        span<T> out_span(output.get_device_writeable(), output.size());
+
+        managed_ptr<T> temp(1);
+        launch_kernel(cuda::math::softmax_warpwise<T>, in_view, out_span, temp.get());
     }
 }
 

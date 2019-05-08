@@ -495,17 +495,20 @@ void test_stream_parallelism() {
     std::cout << "GPU Parallel Computation Time: " << to_milliseconds(gpu_time_parallel).count() << "ms" << std::endl;
 }
 
-void test_fc() {
+void test_network() {
     using T = float;
     dnn::network<T> net;
+
+    constexpr std::size_t inputs = 3;
+    constexpr std::size_t outputs = 2;
     
     matrix<T> weights, bias;
-    weights.resize(2, 3);
+    weights.resize(outputs, inputs);
     for (int i = 0; i < weights.get_cols(); i++)
         for (int j = 0; j < weights.get_rows(); j++)
-            weights.at(i, j) = static_cast<T>((i + 1) * (j + 1));
+            weights.at(i, j) = static_cast<T>((i + 1) * (j + 1))/1024.0f;
 
-    bias.resize(2, 1);
+    bias.resize(outputs, 1);
     for (int i = 0; i < bias.get_rows(); i++)
         bias.at(i) = static_cast<T>(i + 1);
     
@@ -519,20 +522,20 @@ void test_fc() {
     */
     
     dnn::layer_params<T> params;
-    params.values["num_inputs"] = 3;
-    params.values["num_outputs"] = 2;
+    params.values["num_inputs"] = inputs;
+    params.values["num_outputs"] = outputs;
     params.values["has_bias"] = true;
 
     params.matrix["weights"] = std::move(weights);
     params.matrix["bias"] = std::move(bias);
     
     net.add_layer(dnn::layer_type::fully_connected, params);
+    net.add_layer(dnn::layer_type::softmax, params);
 
     matrix<T> input, output;
-    input.resize(3, 1);
-    input.at(0) = 5;
-    input.at(1) = 4;
-    input.at(2) = 1;
+    input.resize(inputs, 1);
+    for (int i = 0; i < input.size(); i++)
+        input.at(i) = i * 2.0f;
 
     net.forward(input, output);
 
@@ -573,7 +576,7 @@ int main() {
     std::cout << std::endl;
 
     std::cout << "FULLY CONNECTED LAYER\n";
-    test_fc();
+    test_network();
     std::cout << std::endl;
 
     CHECK_CUDA(cudaDeviceReset());

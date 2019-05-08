@@ -71,13 +71,20 @@ namespace cuda {
         using device_pointer = typename managed_ptr<T>::pointer;
         using const_device_pointer = typename managed_ptr<T>::const_pointer;
 
-        common_data() : strm(default_stream), host_dirty{ false }, device_dirty{ false } { };
+        common_data() : strm(default_stream_t()), host_dirty{ false }, device_dirty{ false } { };
         common_data(common_data&&) noexcept = default;
         common_data(stream s) noexcept : strm{ std::move(s) } { }
         common_data(stream s, std::size_t count) : strm{ std::move(s) } { reset(count); }
         common_data(std::size_t count) : strm(default_stream) { reset(count); }
 
-        common_data& operator=(common_data&&) noexcept = default;
+        common_data& operator=(common_data&& other) noexcept {
+            host_dirty = other.host_dirty;
+            device_dirty = other.device_dirty;
+            host_ptr = std::move(other.host_ptr);
+            device_ptr = std::move(other.device_ptr);
+            /* do not move stream */
+            return *this;
+        }
 
         host_pointer begin() noexcept { return get_host_writeable(); }
         host_pointer end() noexcept { return get_host_writeable() + size(); }
@@ -137,13 +144,17 @@ namespace cuda {
         }
 
         void copy_to_device() const {
-           if(host_dirty)
-               memcpy<value_type>(device_ptr, host_ptr.get(), strm);
+            if (host_dirty) {
+                host_dirty = false;
+                memcpy<value_type>(device_ptr, host_ptr.get(), strm);
+            }
         }
         
         void copy_to_host() const { 
-            if(device_dirty)
+            if (device_dirty) {
+                device_dirty = false;
                 memcpy<value_type>(host_ptr.get(), device_ptr, strm);
+            }
         }
 
         void synchronize() const noexcept { strm.synchronize(); }
@@ -165,7 +176,7 @@ namespace cuda {
         stream strm;
         std::shared_ptr<value_type> host_ptr;
         managed_ptr<value_type> device_ptr;
-        bool host_dirty, device_dirty;
+        mutable bool host_dirty, device_dirty;
     };
 }
 

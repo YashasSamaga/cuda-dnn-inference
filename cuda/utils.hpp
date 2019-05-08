@@ -26,30 +26,31 @@ namespace cuda {
         cudaStream_t stream;
     };
 
-    template <class Kernel>
+    template <class Kernel> inline
     execution_policy make_optimal_policy(Kernel kernel, std::size_t sharedMem = 0, cudaStream_t stream = 0) {
         int grid_size, block_size;
         CHECK_CUDA(cudaOccupancyMaxPotentialBlockSize(&grid_size, &block_size, kernel, sharedMem));
+        assert(block_size % 32 == 0);
         return execution_policy(grid_size, block_size, sharedMem, stream);
     }
 
-    template <class Kernel, typename ...Args>
+    template <class Kernel, typename ...Args> inline
     void launch_kernel(Kernel kernel, Args ...args) {
         auto policy = make_optimal_policy(kernel);
         kernel <<<policy.grid, policy.block>>> (std::forward<Args>(args)...);
     }
 
-    template <class Kernel, typename ...Args>
+    template <class Kernel, typename ...Args> inline
     void launch_kernel(Kernel kernel, dim3 grid, dim3 block, Args ...args) {
         kernel <<<grid, block>>> (std::forward<Args>(args)...);
     }
 
-    template <class Kernel, typename ...Args>
+    template <class Kernel, typename ...Args> inline
     void launch_kernel(Kernel kernel, execution_policy policy, Args ...args) {
         kernel <<<policy.grid, policy.block, policy.sharedMem, policy.stream >>> (std::forward<Args>(args)...);
     }
 
-    void device_synchronize() { CHECK_CUDA(cudaDeviceSynchronize()); }
+    inline void device_synchronize() { CHECK_CUDA(cudaDeviceSynchronize()); }
 
     template <int> __device__ auto getGridDim()->decltype(dim3::x);
     template <> inline __device__ auto getGridDim<0>()->decltype(dim3::x) { return gridDim.x; }

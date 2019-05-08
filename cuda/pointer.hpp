@@ -52,7 +52,7 @@ namespace cuda {
         __device__ constexpr pointer operator->() const noexcept { return get(); }
 
         template<class U = T, class V = std::add_const<U>::type,
-            std::enable_if<!std::is_const<U>::value, bool>::type = true>
+            typename std::enable_if<!std::is_const<U>::value, bool>::type = true>
             __host__ __device__ operator device_ptr<V>() const noexcept { return device_ptr<V>{ptr}; }
 
         __host__ __device__ constexpr explicit operator bool() const noexcept { return ptr; }

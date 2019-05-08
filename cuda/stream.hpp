@@ -2,7 +2,7 @@
 #define CUDA_STREAM_HPP
 
 #include "error.hpp"
-#include "utils/noncopyable.hpp"
+#include "../utils/noncopyable.hpp"
 
 #include <cuda_runtime.h>
 #include <memory>
@@ -10,7 +10,7 @@
 namespace cuda {
     struct default_stream_t {
         static constexpr cudaStream_t stream = 0;
-    } default_stream;
+    };
 
     class unique_stream : noncopyable {
     public:

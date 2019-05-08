@@ -1,6 +1,6 @@
 #ifndef DNN_LAYERS_HPP
 #define DNN_LAYERS_HPP
-#include <iostream>
+
 #include "matrix.hpp"
 #include "cuda/tensor.hpp"
 
@@ -11,6 +11,7 @@
 namespace dnn {
     enum class layer_type {
         fully_connected,
+        softmax
     };
 
     template <class T>
@@ -24,7 +25,7 @@ namespace dnn {
     class layer {
     public:
         virtual ~layer() { }
-        virtual void set_params(layer_params<T> params) { };
+        virtual void set_params(const layer_params<T>& params) { };
         virtual void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output) = 0;
     };
 
@@ -36,25 +37,27 @@ namespace dnn {
         fully_connected(cuda::stream strm) noexcept
             : stream(std::move(strm)), num_inputs{ 0 }, num_outputs{ 0 }, has_bias{ false }  { };
 
-        void set_params(layer_params<T> params) override {
+        void set_params(const layer_params<T>& params) override {
             assert(params.values.count("num_inputs") > 0);
             assert(params.values.count("num_outputs") > 0);
             assert(params.values.count("has_bias") > 0);
             assert(params.matrix.count("weights") > 0);
 
-            num_outputs = params.values["num_outputs"];
-            num_inputs = params.values["num_inputs"];
-            has_bias = params.values["has_bias"];
+            num_outputs = params.values.at("num_outputs");
+            num_inputs = params.values.at("num_inputs");
+            has_bias = params.values.at("has_bias");
 
+            const auto& weights_source = params.matrix.at("weights");
             weights.resize(1, 1, num_inputs, num_outputs);
             for (int i = 0; i < num_inputs; i++)
                 for (int j = 0; j < num_outputs; j++)
-                    weights.write(i, j, params.matrix["weights"].at(i, j));
+                    weights.write(i, j, weights_source.at(i, j));
 
             if (has_bias) {
                 bias.resize(1, 1, 1, num_outputs);
+                const auto& bias_source = params.matrix.at("bias");
                 for (int i = 0; i < num_outputs; i++)
-                    bias.write(i, params.matrix["bias"].at(i));
+                    bias.write(i, bias_source.at(i));
             }
         }
 
@@ -63,7 +66,7 @@ namespace dnn {
 
             output.resize(1, 1, 1, num_outputs);
 
-            cuda::cublas_context handle(strm);
+            cuda::cublas_context handle(stream);
             cuda::multiply(handle, weights, input, output);
             if (has_bias)
                 cuda::add(handle, output, bias, output);
@@ -74,6 +77,19 @@ namespace dnn {
         std::size_t num_inputs, num_outputs;
         cuda::tensor<T> weights, bias;
         cuda::stream stream;
+    };
+
+    template <class T>
+    class softmax : public layer<T> {
+    public:
+        softmax() = default;
+        
+        void set_params(const layer_params<T>& params) override { }
+
+        void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output) override {
+            output.resize(1, 1, input.get_width(), input.get_height());
+            cuda::softmax(input, output);
+        }
     };
 }
 
