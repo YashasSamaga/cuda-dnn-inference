@@ -1,9 +1,10 @@
 #ifndef CUDA_UTILS_HPP
 #define CUDA_UTILS_HPP
 
-#include <cuda_runtime.h>
 #include "error.hpp"
 #include "stream.hpp"
+
+#include <cuda_runtime.h>
 
 namespace cuda {
     struct execution_policy {

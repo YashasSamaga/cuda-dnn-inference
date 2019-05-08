@@ -1,21 +1,22 @@
 #pragma comment(lib, "cublas.lib")
 #pragma comment(lib, "cudnn.lib")
 
-#include "cuda/utils.hpp"
+#include "matrix.hpp"
+#include "dnn/dnn.hpp"
+
 #include "cuda/memory.hpp"
-#include "cuda/cublas.hpp"
 #include "cuda/data.hpp"
+#include "cuda/cublas.hpp"
+#include "cuda/utils.hpp"
 
 #include "benchmark.hpp"
 
-#include <cuda_runtime.h>
-
 #include <iostream>
-#include <chrono>
+#include <iomanip>
 #include <random>
 #include <vector>
-#include <iomanip>
-#include <memory>
+
+#include <cuda_runtime.h>
 
 #if defined(__GNUC__) && ((__GNUC__ > 3) || (__GNUC__ == 3 && __GNUC_MINOR__ >= 1))
 #   define RESTRICT __restrict
@@ -30,23 +31,23 @@
 /* cpu implementations */
 namespace cpu {
     template <class T>
-    void vector_add(const T* first1, const T* first2, T* result, std::size_t N) {
-        for (std::size_t i = 0; i < N; i++)
-            result[i] = first1[i] + first2[i];
+    void vector_add(const T* first, const T* second, T* result, std::size_t n) {
+        for (std::size_t i = 0; i < n; i++)
+            result[i] = first[i] + second[i];
     }
 
     template <class T>
-    void matrix_add(const T* first, const T* first2, T* result, std::size_t n) {
+    void matrix_add(const T* first, const T* second, T* result, std::size_t n) {
         for (std::size_t i = 0; i < n; i++) {
             for (std::size_t j = 0; j < n; j++) {
                 const auto idx = i * n + j;
-                result[idx] = first[idx] + first2[idx];
+                result[idx] = first[idx] + second[idx];
             }
         }
     }
 
     template <class T>
-    void matrix_multiply(const T* first, const T* first2, T* result, std::size_t n) {
+    void matrix_multiply(const T* first, const T* second, T* result, std::size_t n) {
         for (std::size_t i = 0; i < n; i++) {
             for (std::size_t j = 0; j < n; j++) {
                 const auto idx = j * n + i;
@@ -54,7 +55,7 @@ namespace cpu {
                 for (std::size_t k = 0; k < n; k++) {
                     const auto first_idx = i * n + k,
                                second_idx = k * n + j;
-                    result[idx] += first[first_idx] * first2[second_idx];
+                    result[idx] += first[first_idx] * second[second_idx];
                 }
             }
         }
@@ -68,8 +69,8 @@ namespace gpu {
         assert(first1.size() >= d_first.size());
         assert(first2.size() >= d_first.size());
 
-		const auto N = d_first.size();
-        for(auto i : cuda::grid_stride_range(N))
+		const auto n = d_first.size();
+        for(auto i : cuda::grid_stride_range(n))
             d_first[i] = first1[i] + first2[i];
     }
 
@@ -99,33 +100,12 @@ namespace gpu {
 namespace cublas {
     template <class T>
     void matrix_add(cuda::cublas_context& handle, cuda::device_ptr<const T> first, cuda::device_ptr<const T> second, cuda::device_ptr<T> result, std::size_t n) {
-        static_assert(std::is_same<T, float>::value, "uses cublasSgeam; hence, requires T to be float");
-
-        const auto in = static_cast<int>(n);
-        const auto alpha = 1.0f, beta = 1.0f;
-        cublasSgeam(handle.get(), CUBLAS_OP_N, CUBLAS_OP_N,
-            in, in,
-            &alpha,
-            first.get(), in,
-            &beta,
-            second.get(), in,
-            result.get(), in);
+        cuda::blas::geam<T>(handle, false, false, n, n, 1.0, first, n, 1.0, second, n, result, n);
     }
 
     template <class T>
     void matrix_multiply(cuda::cublas_context& handle, cuda::device_ptr<const T> first, cuda::device_ptr<const T> second, cuda::device_ptr<T> result, std::size_t n) {
-        static_assert(std::is_same<T, float>::value, "uses cublasSgemm; hence, requires T to be float");
-
-        const auto in = static_cast<int>(n);
-        const auto alpha = 1.0f, beta = 0.0f;
-        cublasSgemm(handle.get(), CUBLAS_OP_T, CUBLAS_OP_T,
-                    in, in, in,
-                    &alpha,
-                    first.get(), in,
-                    second.get(), in,
-                    &beta,
-                    result.get(), in);
-        cublasSgeam(handle.get(), CUBLAS_OP_T, CUBLAS_OP_N, in, in, &alpha, result.get(), in, &beta, nullptr, in, result.get(), in);        
+        cuda::blas::gemm<T>(handle, false, false, n, n, n, 1.0f, first, n, second, n, 0.0, result, n);
     }
 }
 
@@ -158,7 +138,7 @@ void test_matrix_multiply() {
     using T = float;
     using allocator = cuda::pinned_allocator<T>;
 
-    constexpr std::size_t n = 1 << 12, size = n * n;
+    constexpr std::size_t n = 1 << 11, size = n * n;
 
     /* generate sample data */
     std::vector<T, allocator> lhs(size), rhs(size);
@@ -411,7 +391,7 @@ void test_stream_matrix_add() {
 
     constexpr int n = 1 << 13, size = n * n;
 
-    auto stream = std::make_shared<cuda::stream>();
+    cuda::stream stream;
 
     cuda::common_data<T> lhs(stream, size), rhs(stream, size), result(stream, size);
     random_fill(std::begin(lhs), std::end(lhs));
@@ -432,11 +412,11 @@ void test_stream_matrix_add() {
     std::cout << "GPU H2D Transfer Time: " << to_milliseconds(gpu_h2d_time).count() << "ms" << std::endl;
 
     auto gpu_time = benchmark([&lhs, &rhs, &result, &stream] {
-        auto policy = cuda::make_optimal_policy(gpu::matrix_add<T>, 0, *stream);
+        auto policy = cuda::make_optimal_policy(gpu::matrix_add<T>, 0, stream);
         cuda::launch_kernel(gpu::matrix_add<T>, policy, 
                             lhs.get_device_readonly(), rhs.get_device_readonly(),
                             result.get_device_writeable(), n);
-        stream->synchronize();
+        stream.synchronize();
     });
     std::cout << "GPU Computation Time: " << to_milliseconds(gpu_time).count() << "ms" << std::endl;
 
@@ -456,13 +436,12 @@ void test_stream_matrix_add() {
 }
 
 void test_stream_parallelism() {
-    using T = double;
+    using T = float;
 
-    constexpr int n = 1 << 12, size = n * n;
+    constexpr int n = 1 << 13, size = n * n;
     constexpr int count = 2;
 
-    std::vector<std::shared_ptr<cuda::stream>> streams(count);
-    std::generate(std::begin(streams), std::end(streams), [] { return std::make_shared<cuda::stream>(); });
+    std::vector<cuda::stream> streams(count);
 
     std::vector<cuda::common_data<T>> lhs, rhs, result;
     for (auto& stream : streams) {
@@ -482,13 +461,13 @@ void test_stream_parallelism() {
             lhs[i].copy_to_device();
             rhs[i].copy_to_device();
 
-            auto policy = cuda::make_optimal_policy(gpu::matrix_add<T>, 0, *streams[i]);
+            auto policy = cuda::make_optimal_policy(gpu::matrix_add<T>, 0, streams[i]);
             cuda::launch_kernel(gpu::matrix_add<T>, policy,
                 lhs[i].get_device_readonly(), rhs[i].get_device_readonly(),
                 result[i].get_device_writeable(), n);
 
             result[i].copy_to_host();
-            streams[i]->synchronize();
+            streams[i].synchronize();
         }
     });
     std::cout << "GPU Serial Computation Time: " << to_milliseconds(gpu_time_serial).count() << "ms" << std::endl;
@@ -502,7 +481,7 @@ void test_stream_parallelism() {
             lhs[i].copy_to_device();
             rhs[i].copy_to_device();
 
-            auto policy = cuda::make_optimal_policy(gpu::matrix_add<T>, 0, *streams[i]);
+            auto policy = cuda::make_optimal_policy(gpu::matrix_add<T>, 0, streams[i]);
             cuda::launch_kernel(gpu::matrix_add<T>, policy,
                 lhs[i].get_device_readonly(), rhs[i].get_device_readonly(),
                 result[i].get_device_writeable(), n);
@@ -511,9 +490,54 @@ void test_stream_parallelism() {
         }
         
         for (auto& stream : streams)
-            stream->synchronize();
+            stream.synchronize();
     });   
     std::cout << "GPU Parallel Computation Time: " << to_milliseconds(gpu_time_parallel).count() << "ms" << std::endl;
+}
+
+void test_fc() {
+    using T = float;
+    dnn::network<T> net;
+
+    
+    matrix<T> weights, bias;
+    weights.resize(2, 3);
+    for (int i = 0; i < weights.get_cols(); i++)
+        for (int j = 0; j < weights.get_rows(); j++)
+            weights.at(i, j) = static_cast<T>((i + 1) * (j + 1));
+
+    bias.resize(2, 1);
+    for (int i = 0; i < weights.get_rows(); i++)
+            weights.at(i) = static_cast<T>(i + 1);
+    
+    /* WEIGHTS
+    ** 1 2 3
+    ** 2 4 6
+    **
+    ** BIAS
+    ** 1
+    ** 2
+    */
+    
+    dnn::layer_params<T> params;
+    params.values["num_inputs"] = 3;
+    params.values["num_outputs"] = 2;
+    params.values["has_bias"] = true;
+
+    params.matrix["weights"] = std::move(weights);
+    params.matrix["bias"] = std::move(bias);
+    
+    net.add_layer(dnn::layer_type::fully_connected, params);
+
+    matrix<T> input, output;
+    input.resize(3, 1);
+    input.at(0) = 5;
+    input.at(1) = 4;
+    input.at(2) = 1;
+
+    net.forward(input, output);
+
+    std::cout << output.at(0) << ' ' << output.at(1) << std::endl;
 }
 
 int main() {
@@ -526,19 +550,19 @@ int main() {
     CHECK_CUDA(cudaFree(0)); /* establish context beforehand so that the benchmarks are not disturbed */
 
     std::cout << "DATA TRANSFER:\n";
-    test_data_transfer();
+   // test_data_transfer();
     std::cout << std::endl;
 
     std::cout << "VECTOR ADDITION:\n";
-    test_vector_add();
+    //test_vector_add();
     std::cout << std::endl;
 
     std::cout << "MATRIX ADDITION:\n";
-    test_matrix_add();
+    //test_matrix_add();
     std::cout << std::endl;
 
     std::cout << "MATRIX ADDITION (using stream)\n";
-    test_stream_matrix_add();
+    //test_stream_matrix_add();
     std::cout << std::endl;
 
     std::cout << "MATRIX MULTIPLICATION:\n";
@@ -547,6 +571,10 @@ int main() {
 
     std::cout << "MATRIX ADDITION (stream parallelism)\n";
     test_stream_parallelism();
+    std::cout << std::endl;
+
+    std::cout << "FULL CONNECTED LAYER\n";
+    test_fc();
     std::cout << std::endl;
 
     CHECK_CUDA(cudaDeviceReset());
