@@ -96,9 +96,15 @@ namespace cuda {
         assert(lhs.get_width() == rhs.get_height());
         assert(rhs.get_width() == result.get_width());
 
-        blas::gemm<T>(handle, false, false, lhs.get_height(), rhs.get_width(), lhs.get_width(), 1.0,
-            lhs.get_device_readonly(), lhs.get_width(), rhs.get_device_readonly(), rhs.get_width(), 0.0,
-            result.get_device_writeable(), result.get_width());
+        const auto dest_nr = result.get_height();
+        const auto dest_nc = result.get_width();
+        const auto lhs_nc = lhs.get_width();
+        const auto rhs_nr = rhs.get_height();
+        const auto rhs_nc = rhs.get_width();
+
+        blas::gemm<T>(handle, false, false, dest_nc, dest_nr, rhs_nr, 1.0,
+            lhs.get_device_readonly(), lhs_nc, rhs.get_device_readonly(), rhs_nc, 0.0,
+            result.get_device_writeable(), dest_nc);
     }
 
     template <class T>
@@ -108,9 +114,15 @@ namespace cuda {
         assert(result.get_width() == lhs.get_width());
         assert(result.get_height() == lhs.get_height());
         
-        blas::geam<T>(handle, false, false, result.get_height(), result.get_width(), 1.0,
-            lhs.get_device_readonly(), lhs.get_width(), 0.0, rhs.get_device_readonly(), rhs.get_width(),
-            result.get_device_writeable(), result.get_width());
+        const auto dest_nr = result.get_height();
+        const auto dest_nc = result.get_width();
+        const auto lhs_nr = lhs.get_height();
+        const auto rhs_nr = rhs.get_height();
+        const auto rhs_nc = rhs.get_width();
+
+        blas::geam<T>(handle, false, false, dest_nr, dest_nc, 1.0,
+            lhs.get_device_readonly(), lhs_nr, 0.0, rhs.get_device_readonly(), rhs_nr,
+            result.get_device_writeable(), dest_nr);
     }
 }
 

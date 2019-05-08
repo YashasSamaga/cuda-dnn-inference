@@ -105,7 +105,7 @@ namespace cublas {
 
     template <class T>
     void matrix_multiply(cuda::cublas_context& handle, cuda::device_ptr<const T> first, cuda::device_ptr<const T> second, cuda::device_ptr<T> result, std::size_t n) {
-        cuda::blas::gemm<T>(handle, false, false, n, n, n, 1.0f, first, n, second, n, 0.0, result, n);
+        cuda::blas::gemm<T>(handle, false, false, n, n, n, 1.0f, second, n, first, n, 0.0, result, n);
     }
 }
 
@@ -498,7 +498,6 @@ void test_stream_parallelism() {
 void test_fc() {
     using T = float;
     dnn::network<T> net;
-
     
     matrix<T> weights, bias;
     weights.resize(2, 3);
@@ -507,8 +506,8 @@ void test_fc() {
             weights.at(i, j) = static_cast<T>((i + 1) * (j + 1));
 
     bias.resize(2, 1);
-    for (int i = 0; i < weights.get_rows(); i++)
-            weights.at(i) = static_cast<T>(i + 1);
+    for (int i = 0; i < bias.get_rows(); i++)
+        bias.at(i) = static_cast<T>(i + 1);
     
     /* WEIGHTS
     ** 1 2 3
@@ -566,14 +565,14 @@ int main() {
     std::cout << std::endl;
 
     std::cout << "MATRIX MULTIPLICATION:\n";
-    test_matrix_multiply();
+    //test_matrix_multiply();
     std::cout << std::endl;
 
     std::cout << "MATRIX ADDITION (stream parallelism)\n";
-    test_stream_parallelism();
+   // test_stream_parallelism();
     std::cout << std::endl;
 
-    std::cout << "FULL CONNECTED LAYER\n";
+    std::cout << "FULLY CONNECTED LAYER\n";
     test_fc();
     std::cout << std::endl;
 

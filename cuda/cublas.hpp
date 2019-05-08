@@ -69,20 +69,20 @@ namespace cuda {
             T beta, const device_ptr<T> C, std::size_t ldc);
 
         template <> inline
-        void gemm<float>(cublas_context& handle, bool transa, bool transb, std::size_t rows_a, std::size_t cols_b, std::size_t cols_a,
+        void gemm<float>(cublas_context& handle, bool transa, bool transb, std::size_t rows_c, std::size_t cols_c, std::size_t common_dim,
            float alpha, const device_ptr<const float> A, std::size_t lda, const device_ptr<const float> B, std::size_t ldb,
            float beta, const device_ptr<float> C, std::size_t ldc) 
         {
             auto opa = transa ? CUBLAS_OP_T : CUBLAS_OP_N,
-                opb = transb ? CUBLAS_OP_T : CUBLAS_OP_N;
-            int irows_a = static_cast<int>(rows_a),
-                icols_b = static_cast<int>(cols_b),
-                icols_a = static_cast<int>(cols_a),
+                 opb = transb ? CUBLAS_OP_T : CUBLAS_OP_N;
+            int irows_c = static_cast<int>(rows_c),
+                icols_c = static_cast<int>(cols_c),
+                icommon_dim = static_cast<int>(common_dim),
                 ilda = static_cast<int>(lda),
                 ildb = static_cast<int>(ldb),
                 ildc = static_cast<int>(ldc);
             if (!transa && !transb) {
-                CHECK_CUBLAS(cublasSgemm(handle.get(), opa, opb, icols_b, irows_a, icols_a, &alpha, B.get(), ildb, A.get(), ilda, &beta, C.get(), ildc));
+                CHECK_CUBLAS(cublasSgemm(handle.get(), opb, opa, irows_c, icols_c, icommon_dim, &alpha, B.get(), ildb, A.get(), ilda, &beta, C.get(), ildc));
                 return;
             }
 
@@ -90,20 +90,20 @@ namespace cuda {
         }
 
         template <> inline
-        void gemm<double>(cublas_context& handle, bool transa, bool transb, std::size_t rows_a, std::size_t cols_b, std::size_t cols_a,
+        void gemm<double>(cublas_context& handle, bool transa, bool transb, std::size_t rows_c, std::size_t cols_c, std::size_t common_dim,
             double alpha, const device_ptr<const double> A, std::size_t lda, const device_ptr<const double> B, std::size_t ldb,
             double beta, const device_ptr<double> C, std::size_t ldc)
         {
             auto opa = transa ? CUBLAS_OP_T : CUBLAS_OP_N,
                 opb = transb ? CUBLAS_OP_T : CUBLAS_OP_N;
-            int irows_a = static_cast<int>(rows_a),
-                icols_b = static_cast<int>(cols_b),
-                icols_a = static_cast<int>(cols_a),
+            int irows_c = static_cast<int>(rows_c),
+                icols_c = static_cast<int>(cols_c),
+                icommon_dim = static_cast<int>(common_dim),
                 ilda = static_cast<int>(lda),
                 ildb = static_cast<int>(ldb),
                 ildc = static_cast<int>(ldc);
             if (!transa && !transb) {
-                CHECK_CUBLAS(cublasDgemm(handle.get(), opa, opb, irows_a, icols_b, icols_a, &alpha, A.get(), ilda, B.get(), ildb, &beta, C.get(), ildc));
+                CHECK_CUBLAS(cublasDgemm(handle.get(), opb, opa, irows_c, icols_c, icommon_dim, &alpha, B.get(), ildb, A.get(), ilda, &beta, C.get(), ildc));
                 return;
             }
 
@@ -143,7 +143,7 @@ namespace cuda {
                 ildb = static_cast<int>(ldb),
                 ildc = static_cast<int>(ldc);
             CHECK_CUBLAS(cublasDgeam(handle.get(), opa, opb, irows, icols, &alpha, A.get(), ilda, &beta, B.get(), ildb, C.get(), ildc));
-        }
+        }        
     }
 }
 
