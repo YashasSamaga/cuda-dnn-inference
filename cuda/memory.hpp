@@ -51,7 +51,7 @@ namespace cuda {
                 if (ptr != nullptr) {
                     CHECK_CUDA(cudaFree(ptr));
                 }
-                });
+            });
             n = count;
         }
 

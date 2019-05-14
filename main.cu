@@ -15,6 +15,7 @@
 #include <iomanip>
 #include <random>
 #include <vector>
+#include <cmath>
 
 #include <cuda_runtime.h>
 
@@ -495,51 +496,147 @@ void test_stream_parallelism() {
     std::cout << "GPU Parallel Computation Time: " << to_milliseconds(gpu_time_parallel).count() << "ms" << std::endl;
 }
 
-void test_network() {
+template <class T>
+void print_matrix2d(const matrix<T>& mat) {
+    for (std::size_t i = 0; i < mat.get_height(); i++) {
+        for (std::size_t j = 0; j < mat.get_width(); j++) {
+            std::cout << mat.at(i, j) << 
+                ' ' << i << ' ' << j << '\n';
+        }
+        std::cout << '\n';
+    }
+}
+
+void test_fully_connected() {
     using T = float;
-    dnn::network<T> net;
 
-    constexpr std::size_t inputs = 3;
+    constexpr std::size_t in_width = 3;
+    constexpr std::size_t in_height = 3;
+    constexpr std::size_t in_chans = 1;
+    constexpr std::size_t in_samples = 1;
+
     constexpr std::size_t outputs = 2;
-    
-    matrix<T> weights, bias;
-    weights.resize(outputs, inputs);
-    for (int i = 0; i < weights.get_cols(); i++)
-        for (int j = 0; j < weights.get_rows(); j++)
-            weights.at(i, j) = static_cast<T>((i + 1) * (j + 1))/1024.0f;
 
-    bias.resize(outputs, 1);
-    for (int i = 0; i < bias.get_rows(); i++)
-        bias.at(i) = static_cast<T>(i + 1);
-    
-    /* WEIGHTS
-    ** 1 2 3
-    ** 2 4 6
-    **
-    ** BIAS
-    ** 1
-    ** 2
-    */
-    
+    matrix<T> fc_weights, fc_bias;
+    std::cout << "fc weight matrix:\n";
+    fc_weights.resize(outputs, in_width * in_height * in_chans);
+    for (int i = 0; i < fc_weights.get_height(); i++)
+        for (int j = 0; j < fc_weights.get_width(); j++)
+            fc_weights.at(i, j) = T((i + 1) * (j + 1));
+    print_matrix2d(fc_weights);
+
+    std::cout << "fc1 bias matrix:\n";
+    fc_bias.resize(outputs, 1);
+    for (int i = 0; i < fc_bias.get_height(); i++)
+        fc_bias.at(i, 0) = T(i + 1);
+    print_matrix2d(fc_bias);
+
     dnn::layer_params<T> params;
-    params.values["num_inputs"] = inputs;
-    params.values["num_outputs"] = outputs;
-    params.values["has_bias"] = true;
+    params.matrix["weights"] = std::move(fc_weights);
+    params.matrix["bias"] = std::move(fc_bias);
 
-    params.matrix["weights"] = std::move(weights);
-    params.matrix["bias"] = std::move(bias);
-    
+    dnn::network<T> net;
     net.add_layer(dnn::layer_type::fully_connected, params);
+
+    std::cout << "Input Matrix:\n";
+    matrix<T> input, output;
+    input.resize(in_samples, in_chans, in_height, in_width);
+    for (int n = 0; n < input.get_n(); n++)
+        for (int c = 0; c < input.get_chans(); c++)
+            for (int i = 0; i < input.get_height(); i++)
+                for (int j = 0; j < input.get_width(); j++)
+                    input.at(n, c, i, j) = T(i + 1);
+    print_matrix2d(input);
+
+    input.reshape(input.get_n(), 1, input.size() / input.get_n(), 1);
+    net.forward(input, output);
+
+    std::cout << "Output Matrix:\n";
+    output.reshape(in_samples, 1, output.get_chans(), 1);
+    print_matrix2d(output);
+
+    assert(output.at(0, 0) == 109 && output.at(1, 0) == 218);
+}
+
+void test_softmax() {
+    using T = float;
+
+    constexpr std::size_t channels = 5;
+
+    dnn::layer_params<T> params;
+
+    dnn::network<T> net;
     net.add_layer(dnn::layer_type::softmax, params);
 
+    std::cout << "Input Matrix:\n";
     matrix<T> input, output;
-    input.resize(inputs, 1);
-    for (int i = 0; i < input.size(); i++)
-        input.at(i) = i * 2.0f;
+    input.resize(1, 1, channels, 1); /* chans and height flipped for printing purpose */
+    for (int n = 0; n < input.get_n(); n++)
+        for (int c = 0; c < input.get_chans(); c++)
+            for (int i = 0; i < input.get_height(); i++)
+                for (int j = 0; j < input.get_width(); j++)
+                    input.at(n, c, i, j) = T(i + 1);
+    print_matrix2d(input);
+
+    input.reshape(1, channels, 1, 1);
+    net.forward(input, output);
+
+    std::cout << "Output Matrix:\n";
+    output.reshape(1, 1, channels, 1);
+    print_matrix2d(output);
+}
+
+void test_convolution_layer() {
+    using T = float;
+
+    constexpr std::size_t in_width = 3;
+    constexpr std::size_t in_height = 3;
+    constexpr std::size_t in_chans = 1;
+    constexpr std::size_t in_samples = 1;
+
+    constexpr std::size_t filters = 1;
+    constexpr std::size_t ker_height = 2;
+    constexpr std::size_t ker_width = 2;
+
+    matrix<T> conv1_weights, conv1_bias;
+    std::cout << "conv1 weight matrix:\n";
+    conv1_weights.resize(filters, in_chans, ker_height, ker_width);
+    for (int n = 0; n < conv1_weights.get_n(); n++)
+        for (int c = 0; c < conv1_weights.get_chans(); c++)
+            for (int i = 0; i < conv1_weights.get_height(); i++)
+                for (int j = 0; j < conv1_weights.get_width(); j++)
+                    conv1_weights.at(i, j) = T(std::floor(std::exp(i * 2 + j + 1)));
+    print_matrix2d(conv1_weights);
+
+    std::cout << "conv1 bias matrix:\n";
+    conv1_bias.resize(filters, 1);
+    for (int i = 0; i < conv1_bias.get_height(); i++)
+        conv1_bias.at(i, 0) = T(i + 1);
+    print_matrix2d(conv1_bias);
+
+    conv1_bias.reshape(1, filters, 1, 1);
+
+    dnn::layer_params<T> params;
+    params.matrix["weights"] = std::move(conv1_weights);
+    params.matrix["bias"] = std::move(conv1_bias);
+
+    dnn::network<T> net;
+    net.add_layer(dnn::layer_type::convolution, params);
+
+    std::cout << "Input Matrix:\n";
+    matrix<T> input, output;
+    input.resize(in_samples, in_chans, in_height, in_width);
+    for (int n = 0; n < input.get_n(); n++)
+        for (int c = 0; c < input.get_chans(); c++)
+            for (int i = 0; i < input.get_height(); i++)
+                for (int j = 0; j < input.get_width(); j++)
+                    input.at(n, c, i, j) = T(i * -j + 1);
+    print_matrix2d(input);
 
     net.forward(input, output);
 
-    std::cout << output.at(0) << ' ' << output.at(1) << std::endl;
+    std::cout << "Output Matrix:\n";
+    print_matrix2d(output);
 }
 
 int main() {
@@ -576,7 +673,15 @@ int main() {
     std::cout << std::endl;
 
     std::cout << "FULLY CONNECTED LAYER\n";
-    test_network();
+    test_fully_connected();
+    std::cout << std::endl;
+
+    std::cout << "SOFTMAX LAYER\n";
+    test_softmax();
+    std::cout << std::endl;
+
+    std::cout << "CONVOLUTION LAYER\n";
+    test_convolution_layer();
     std::cout << std::endl;
 
     CHECK_CUDA(cudaDeviceReset());

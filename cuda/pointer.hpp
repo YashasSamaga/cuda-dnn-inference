@@ -26,9 +26,6 @@ namespace cuda {
 
         A device_ptr<T> can implicitly convert to device_ptr<const T>.
 
-        For readability purposes, if the pointer points to an array, you may use device_ptr<T[]> which
-        is equivalent to device_ptr<T>.
-
         @sa managed_ptr
     */
     template <class T>
@@ -103,9 +100,9 @@ namespace cuda {
         __host__ __device__ friend constexpr bool operator==(device_ptr lhs, device_ptr rhs) noexcept { return lhs.ptr == rhs.ptr; }
         __host__ __device__ friend constexpr bool operator!=(device_ptr lhs, device_ptr rhs) noexcept { return !(lhs == rhs); }
         __host__ __device__ friend constexpr bool operator<(device_ptr lhs, device_ptr rhs) noexcept { return lhs.ptr < rhs.ptr; }
-        __host__ __device__ friend constexpr bool operator>(device_ptr lhs, device_ptr rhs) { return rhs < lhs; }
-        __host__ __device__ friend constexpr bool operator<=(device_ptr lhs, device_ptr rhs) { return !(rhs < lhs); }
-        __host__ __device__ friend constexpr bool operator>=(device_ptr lhs, device_ptr rhs) { return !(lhs < rhs); }
+        __host__ __device__ friend constexpr bool operator>(device_ptr lhs, device_ptr rhs) noexcept { return rhs < lhs; }
+        __host__ __device__ friend constexpr bool operator<=(device_ptr lhs, device_ptr rhs) noexcept { return !(rhs < lhs); }
+        __host__ __device__ friend constexpr bool operator>=(device_ptr lhs, device_ptr rhs) noexcept { return !(lhs < rhs); }
 
         __host__ __device__ explicit operator pointer() const noexcept { return ptr; }
 
@@ -159,7 +156,7 @@ namespace cuda {
     }
 
     /* stream based */
-    template <class T>
+    template <class T> 
     void memcpy(T *dest, device_ptr<const T> src, std::size_t n, const stream& str) {
         assert(n > 0);
         CHECK_CUDA(cudaMemcpyAsync(dest, src.get(), n * sizeof(T), cudaMemcpyDefault, str));

@@ -78,11 +78,13 @@ namespace cuda {
         common_data(std::size_t count) : strm(default_stream) { reset(count); }
 
         common_data& operator=(common_data&& other) noexcept {
+            if (this == &other)
+                return *this;
             host_dirty = other.host_dirty;
             device_dirty = other.device_dirty;
             host_ptr = std::move(other.host_ptr);
             device_ptr = std::move(other.device_ptr);
-            /* do not move stream */
+            /* do not move stream TODO */
             return *this;
         }
 
@@ -142,6 +144,22 @@ namespace cuda {
             }
             return device_ptr.get();
         }
+        
+        void copy_to_device(std::size_t start, std::size_t end) const {
+            if (host_dirty) {
+                auto start_addr = host_ptr.get() + start;
+                auto end_addr = host_ptr.get() + end;
+                memcpy<value_type>(start_addr, end_addr, (end - start) * sizeof(T));
+            }
+        }
+
+        void copy_to_host(std::size_t start, std::size_t end) const {
+            if (device_dirty) {
+                auto start_addr = device_ptr.get() + start;
+                auto end_addr = device_ptr.get() + end;
+                memcpy<value_type>(start_addr, end_addr, (end - start) * sizeof(T));
+            }
+        }
 
         void copy_to_device() const {
             if (host_dirty) {
@@ -161,6 +179,8 @@ namespace cuda {
 
         bool is_host_dirty() const noexcept { return host_dirty; }
         bool is_device_dirty() const noexcept { return device_dirty; }
+        void set_host_dirty(bool dirty = true) const noexcept { host_dirty = dirty; }
+        void set_device_dirty(bool dirty = true) const noexcept { device_dirty = dirty; }
 
         friend void swap(common_data& lhs, common_data& rhs) noexcept {
             using std::swap;

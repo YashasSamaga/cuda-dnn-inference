@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "layers.hpp"
+#include "cuda/workspace.hpp"
 
 #include "utils/make_unique.hpp"
 
@@ -18,46 +19,38 @@ namespace dnn {
             auto create_layer = [this](layer_type type)->std::unique_ptr<layer<T>> {
                 switch (type) {
                 case layer_type::fully_connected:
-                    return make_unique<fully_connected<T>>(stream);
+                    return make_unique<fully_connected_layer<T>>();
                 case layer_type::softmax:
-                    return make_unique<softmax<T>>();
+                    return make_unique<softmax_layer<T>>();
+                case layer_type::convolution:
+                    return make_unique<convolution_layer<T>>();
                 }
                 return nullptr;
             };
 
             auto ptr = create_layer(type);
             ptr->set_params(params);
+
             layers.push_back(std::move(ptr));
         }
 
         void forward(const matrix<T>& input, matrix<T>& output) {
-            cuda::tensor<T> input_tensor(stream), output_tensor(stream);
-            input_tensor.resize(1, 1, input.get_cols(), input.get_rows());
-
-            /* TODO eliminate redundant copy
-            ** matrix -> tensor_host -> tensor_gpu
-            ** to
-            ** matrix -> tensor_gpu
-            */
-            for (int i = 0; i < input.get_rows(); i++)
-                for (int j = 0; j < input.get_cols(); j++)
-                    input_tensor.write(i, j, input.at(i, j));
+            cuda::tensor<T> input_tensor, output_tensor;
+            cuda::matrix_to_tensor(input, input_tensor);
 
             for (auto& ptr : layers) {
-                ptr->forward(input_tensor, output_tensor);
+                ptr->forward(input_tensor, output_tensor, scratchpad);
                 input_tensor = std::move(output_tensor);
             }
-
             output_tensor = std::move(input_tensor);
-            output.resize(output_tensor.get_height(), output_tensor.get_width());
-            for (int i = 0; i < output_tensor.get_width(); i++)
-                for (int j = 0; j < output_tensor.get_height(); j++)
-                    output.at(i, j) = output_tensor.read(i, j);
-            stream.synchronize();
+            
+            cuda::tensor_to_matrix(output_tensor, output);
+            stream.synchronize(); /* broken FIX */
         }
 
     private:
         cuda::stream stream;
+        cuda::workspace scratchpad;
         std::vector<std::unique_ptr<layer<T>>> layers; /* TODO use graph */
     };
 }
