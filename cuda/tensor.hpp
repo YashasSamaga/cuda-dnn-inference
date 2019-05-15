@@ -4,6 +4,7 @@
 #include <cuda_runtime.h>
 
 #include "cublas.hpp"
+#include "math.cuh"
 #include "cudnn.hpp"
 #include "data.hpp"
 #include "error.hpp"
@@ -105,6 +106,14 @@ namespace cuda {
     };
 
     template <class T> inline
+    bool have_same_shape(const tensor<T>& lhs, const tensor<T>& rhs) {
+        return lhs.get_num_samples() == rhs.get_num_samples() &&
+            lhs.get_chans() == rhs.get_chans() &&
+            lhs.get_height() == rhs.get_height() &&
+            lhs.get_width() == rhs.get_width();
+    }
+
+    template <class T> inline
     void multiply(cublas_context& handle, const tensor<T>& lhs, const tensor<T>& rhs, tensor<T>& result) {
         assert(lhs.get_height() == result.get_height()); //TODO exception
         assert(lhs.get_width() == rhs.get_height());
@@ -123,10 +132,7 @@ namespace cuda {
 
     template <class T> inline
     void add(cublas_context& handle, const tensor<T>& lhs, const tensor<T>& rhs, tensor<T>& result) {
-        assert(lhs.get_width() == rhs.get_width());
-        assert(lhs.get_height() == rhs.get_height());
-        assert(result.get_width() == lhs.get_width());
-        assert(result.get_height() == lhs.get_height());
+        assert(have_same_shape(lhs, rhs));
         
         const auto dest_nr = result.get_height();
         const auto dest_nc = result.get_width();
@@ -137,6 +143,55 @@ namespace cuda {
         blas::geam<T>(handle, false, false, dest_nr, dest_nc, 1.0,
             lhs.get_device_readonly(), lhs_nr, 1.0, rhs.get_device_readonly(), rhs_nr,
             result.get_device_writeable(), dest_nr);
+    }
+
+    template <class T> inline
+    void abs(const tensor<T>& src, tensor<T>& dest) {
+        dest.resize(src.get_num_samples(), src.get_chans(), src.get_height(), src.get_width());
+        math::abs(view<T>(src.get_device_readonly(), src.size()),
+            span<T>(dest.get_device_writeable(), dest.size()));
+    }
+
+    template <class T> inline
+    void bnll(const tensor<T>& src, tensor<T>& dest) {
+        dest.resize(src.get_num_samples(), src.get_chans(), src.get_height(), src.get_width());
+        math::bnll(view<T>(src.get_device_readonly(), src.size()),
+            span<T>(dest.get_device_writeable(), dest.size()));
+    }
+
+    template <class T> inline
+    void relu(const tensor<T>& src, tensor<T>& dest, T slope = 0.0) {
+        dest.resize(src.get_num_samples(), src.get_chans(), src.get_height(), src.get_width());
+        math::relu(view<T>(src.get_device_readonly(), src.size()),
+            span<T>(dest.get_device_writeable(), dest.size()), slope);
+    }
+
+    template <class T> inline
+    void elu(const tensor<T>& src, tensor<T>& dest, T alpha) {
+        dest.resize(src.get_num_samples(), src.get_chans(), src.get_height(), src.get_width());
+        math::elu(view<T>(src.get_device_readonly(), src.size()),
+            span<T>(dest.get_device_writeable(), dest.size()), alpha);
+    }
+
+    template <class T> inline
+    void power(const tensor<T>& src, tensor<T>& dest, T exp = 1, T scale = 1, T shift = 0) {
+        dest.resize(src.get_num_samples(), src.get_chans(), src.get_height(), src.get_width());
+        math::power(view<T>(src.get_device_readonly(), src.size()),
+            span<T>(dest.get_device_writeable(), dest.size()), exp, scale, shift);
+    }
+
+    template <class T> inline
+    void sigmoid(const tensor<T>& src, tensor<T>& dest) {
+        dest.resize(src.get_num_samples(), src.get_chans(), src.get_height(), src.get_width());
+        math::sigmoid(view<T>(src.get_device_readonly(), src.size()),
+            span<T>(dest.get_device_writeable(), dest.size()));
+    }
+
+    template <class T> inline
+    void tanh(const tensor<T>& src, tensor<T>& dest) {
+        dest.resize(src.get_num_samples(), src.get_chans(), src.get_height(), src.get_width());
+        math::tanh(view<T>(src.get_device_readonly(), src.size()),
+            span<T>(dest.get_device_writeable(), dest.size()));
     }
 
     template <class T>

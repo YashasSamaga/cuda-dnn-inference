@@ -500,8 +500,7 @@ template <class T>
 void print_matrix2d(const matrix<T>& mat) {
     for (std::size_t i = 0; i < mat.get_height(); i++) {
         for (std::size_t j = 0; j < mat.get_width(); j++) {
-            std::cout << mat.at(i, j) << 
-                ' ' << i << ' ' << j << '\n';
+            std::cout << mat.at(i, j) << '\t';
         }
         std::cout << '\n';
     }
@@ -622,6 +621,7 @@ void test_convolution_layer() {
 
     dnn::network<T> net;
     net.add_layer(dnn::layer_type::convolution, params);
+    net.add_layer(dnn::layer_type::relu);
 
     std::cout << "Input Matrix:\n";
     matrix<T> input, output;

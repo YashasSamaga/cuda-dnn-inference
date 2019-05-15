@@ -14,14 +14,24 @@ namespace dnn {
     enum class layer_type {
         fully_connected,
         softmax,
-        convolution
+        convolution,
+
+        /* activation layers */
+        abs,
+        bnll,
+        elu,
+        power,
+        relu,
+        sigmoid,
+        tanh
     };
 
     template <class T>
     class layer_params {
     public:
         std::map<std::string, matrix<T>> matrix;
-        std::map<std::string, int> values;
+        std::map<std::string, T> values;
+        std::map<std::string, int> integers;
     };
 
     template <class T>
@@ -96,8 +106,8 @@ namespace dnn {
         softmax_layer() : log{ false } { };
         
         void set_params(const layer_params<T>& params) override {
-            if (params.values.count("log"))
-                log = params.values.at("log");
+            if (params.integers.count("log"))
+                log = params.integers.at("log");
         }
 
         void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output, cuda::workspace& scratchpad) override {
@@ -108,6 +118,96 @@ namespace dnn {
 
     private:
         bool log; /* true => compute log probabilities, false => compute probabilities */
+    };
+
+    template <class T>
+    class abs_layer : public layer<T> {
+    public:
+        void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output, cuda::workspace& scratchpad) override {
+            cuda::abs(input, output);
+        }
+    };
+
+    template <class T>
+    class bnll_layer : public layer<T> {
+    public:
+        void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output, cuda::workspace& scratchpad) override {
+            cuda::bnll(input, output);
+        }
+    };
+
+    template <class T>
+    class elu_layer : public layer<T> {
+    public:
+        elu_layer() : alpha{ 1 } { }
+
+        void set_params(const layer_params<T>& params) override {
+            if (params.values.count("alpha"))
+                alpha = params.values.at("alpha");
+        }
+
+        void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output, cuda::workspace& scratchpad) override {
+            cuda::elu(input, output, alpha);
+        }
+
+    private:
+        T alpha;
+    };
+
+    template <class T>
+    class power_layer : public layer<T> {
+    public:
+        power_layer() : exp{ 1 }, scale{ 1 }, shift{ 0 } { }
+
+        void set_params(const layer_params<T>& params) override {
+            if (params.values.count("exp"))
+                exp = params.values.at("exp");
+            if (params.values.count("scale"))
+                scale = params.values.at("scale");
+            if (params.values.count("shift"))
+                shift = params.values.at("shift");
+        }
+
+        void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output, cuda::workspace& scratchpad) override {
+            cuda::power(input, output, exp, scale, shift);
+        }
+
+    private:
+        T exp, scale, shift;
+    };
+
+    template <class T>
+    class relu_layer : public layer<T> {
+    public:
+        relu_layer() : slope{ 0 } { }
+
+        void set_params(const layer_params<T>& params) override {
+            if (params.values.count("slope"))
+                slope = params.values.at("slope");
+        }
+
+        void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output, cuda::workspace& scratchpad) override {
+            cuda::relu(input, output, slope);
+        }
+
+    private:
+        T slope;
+    };
+
+    template <class T>
+    class sigmoid_layer : public layer<T> {
+    public:
+        void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output, cuda::workspace& scratchpad) override {
+            cuda::sigmoid(input, output);
+        }
+    };
+
+    template <class T>
+    class tanh_layer : public layer<T> {
+    public:
+        void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output, cuda::workspace& scratchpad) override {
+            cuda::tanh(input, output);
+        }
     };
 
     template <class T>
@@ -133,22 +233,22 @@ namespace dnn {
             const auto kernel_width = filters.get_width();
 
             std::size_t padding_x = 0, padding_y = 0;
-            if (params.values.count("padding_x"))
-                padding_x = params.values.at("padding_x");
-            if (params.values.count("padding_y"))
-                padding_y = params.values.at("padding_y");
+            if (params.integers.count("padding_x"))
+                padding_x = params.integers.at("padding_x");
+            if (params.integers.count("padding_y"))
+                padding_y = params.integers.at("padding_y");
 
             std::size_t stride_x = 1, stride_y = 1;
-            if (params.values.count("stride_x"))
-                stride_x = params.values.at("stride_x");
-            if (params.values.count("stride_y"))
-                stride_y = params.values.at("stride_y");
+            if (params.integers.count("stride_x"))
+                stride_x = params.integers.at("stride_x");
+            if (params.integers.count("stride_y"))
+                stride_y = params.integers.at("stride_y");
 
             std::size_t dialation_x = 1, dialation_y = 1;
-            if (params.values.count("dialation_x"))
-                dialation_x = params.values.at("dialation_x");
-            if (params.values.count("dialation_y"))
-                dialation_y = params.values.at("dialation_y");
+            if (params.integers.count("dialation_x"))
+                dialation_x = params.integers.at("dialation_x");
+            if (params.integers.count("dialation_y"))
+                dialation_y = params.integers.at("dialation_y");
 
             conparams = cuda::convolution<T>::params_type(out_channels, in_channels, kernel_height, kernel_width);
             conparams.padding.x = padding_x;

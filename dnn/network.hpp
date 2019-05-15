@@ -24,6 +24,20 @@ namespace dnn {
                     return make_unique<softmax_layer<T>>();
                 case layer_type::convolution:
                     return make_unique<convolution_layer<T>>();
+                case layer_type::abs:
+                    return make_unique<abs_layer<T>>();
+                case layer_type::bnll:
+                    return make_unique<bnll_layer<T>>();
+                case layer_type::elu:
+                    return make_unique<elu_layer<T>>();
+                case layer_type::power:
+                    return make_unique<power_layer<T>>();
+                case layer_type::relu:
+                    return make_unique<relu_layer<T>>();
+                case layer_type::sigmoid:
+                    return make_unique<sigmoid_layer<T>>();
+                case layer_type::tanh:
+                    return make_unique<tanh_layer<T>>();
                 }
                 return nullptr;
             };
@@ -32,6 +46,11 @@ namespace dnn {
             ptr->set_params(params);
 
             layers.push_back(std::move(ptr));
+        }
+
+        void add_layer(layer_type type) {
+            layer_params<T> params;
+            add_layer(type, params);
         }
 
         void forward(const matrix<T>& input, matrix<T>& output) {
