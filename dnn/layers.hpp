@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <map>
+#include <limits>
 
 namespace dnn {
     enum class layer_type {
@@ -22,6 +23,8 @@ namespace dnn {
         elu,
         power,
         relu,
+        clipped_relu,
+        channelwise_relu,
         sigmoid,
         tanh
     };
@@ -192,6 +195,47 @@ namespace dnn {
 
     private:
         T slope;
+    };
+
+    template <class T>
+    class channelwise_relu_layer : public layer<T> {
+    public:
+        channelwise_relu_layer() { }
+
+        void set_params(const layer_params<T>& params) override {
+            assert(params.matrix.count("slope"));
+            auto ssrc = params.matrix.at("slope");
+            cuda::matrix_to_tensor(ssrc, slope);
+            slope.reshape(1, ssrc.size(), 1, 1);
+        }
+
+        void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output, cuda::workspace& scratchpad) override {
+            assert(input.get_chans() == slope.get_chans());
+            cuda::channelwise_relu(input, output, slope);
+        }
+
+    private:
+        cuda::tensor<T> slope;
+    };
+
+    template <class T>
+    class clipped_relu_layer : public layer<T> {
+    public:
+        clipped_relu_layer() : max{ 6 }, min{ 0 } { }
+
+        void set_params(const layer_params<T>& params) override {
+            if (params.values.count("min"))
+                min = params.values.at("min");
+            if (params.values.count("max"))
+                max = params.values.at("max");
+        }
+
+        void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output, cuda::workspace& scratchpad) override {
+            cuda::clipped_relu(input, output, min, max);
+        }
+
+    private:
+        T min, max;
     };
 
     template <class T>

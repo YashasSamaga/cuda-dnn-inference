@@ -160,10 +160,28 @@ namespace cuda {
     }
 
     template <class T> inline
-    void relu(const tensor<T>& src, tensor<T>& dest, T slope = 0.0) {
+    void relu(const tensor<T>& src, tensor<T>& dest, T slope = 0) {
         dest.resize(src.get_num_samples(), src.get_chans(), src.get_height(), src.get_width());
         math::relu(view<T>(src.get_device_readonly(), src.size()),
             span<T>(dest.get_device_writeable(), dest.size()), slope);
+    }
+    
+    template <class T> inline
+    void clipped_relu(const tensor<T>& src, tensor<T>& dest, T max = 6, T min = 0) {
+        dest.resize(src.get_num_samples(), src.get_chans(), src.get_height(), src.get_width());
+        math::clipped_relu(view<T>(src.get_device_readonly(), src.size()),
+            span<T>(dest.get_device_writeable(), dest.size()), max, min);
+    }
+
+    template <class T> inline
+    void channelwise_relu(const tensor<T>& src, tensor<T>& dest, const tensor<T>& slope) {
+        dest.resize(src.get_num_samples(), src.get_chans(), src.get_height(), src.get_width());
+        auto inner_size = src.get_width() * src.get_height();
+        for (std::size_t c = 0; c < src.get_chans(); c++) {
+            auto src_ptr = src.get_device_readonly() + c * inner_size;
+            auto dest_ptr = dest.get_device_writeable() + c * inner_size;
+            math::relu(view<T>(src_ptr, inner_size), span<T>(dest_ptr, inner_size), slope.read(c));
+        }        
     }
 
     template <class T> inline

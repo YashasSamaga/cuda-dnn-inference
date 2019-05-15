@@ -97,17 +97,7 @@ namespace cuda {
             }
 
             template <class T>
-            __global__ void clipped_relu(view<T> src, span<T> dest, T ceiling) {
-                assert(src.size() >= dest.size());
-                for (auto i : grid_stride_range(dest.size())) {
-                    using detail::max;
-                    using detail::min;
-                    dest[i] = min(max(src[i], T(0), ceiling));
-                }
-            }
-
-            template <class T>
-            __global__ void clipped_relu(view<T> src, span<T> dest, T floor, T ceiling) {
+            __global__ void clipped_relu(view<T> src, span<T> dest, T ceiling, T floor) {
                 assert(src.size() >= dest.size());
                 assert(floor <= ceiling);
                 for (auto i : grid_stride_range(dest.size())) {
@@ -161,12 +151,6 @@ namespace cuda {
         void relu(view<T> src, span<T> dest, T slope) {
             assert(src.size() >= dest.size());
             launch_kernel(kernels::relu<T>, src, dest, slope);
-        }
-
-        template <class T>
-        void clipped_relu(view<T> src, span<T> dest, T ceiling) {
-            assert(src.size() >= dest.size());
-            launch_kernel(kernels::clipped_relu<T>, src, dest, ceiling);
         }
 
         template <class T>

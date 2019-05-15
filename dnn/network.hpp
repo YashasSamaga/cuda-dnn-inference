@@ -34,6 +34,10 @@ namespace dnn {
                     return make_unique<power_layer<T>>();
                 case layer_type::relu:
                     return make_unique<relu_layer<T>>();
+                case layer_type::clipped_relu:
+                    return make_unique<clipped_relu_layer<T>>();
+                case layer_type::channelwise_relu:
+                    return  make_unique<channelwise_relu_layer<T>>();
                 case layer_type::sigmoid:
                     return make_unique<sigmoid_layer<T>>();
                 case layer_type::tanh:
