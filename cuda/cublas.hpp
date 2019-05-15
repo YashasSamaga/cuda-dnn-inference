@@ -51,7 +51,12 @@ namespace cuda {
         cublas_context() { CHECK_CUBLAS(cublasCreate(&handle)); }
         cublas_context(stream s) : strm(std::move(s)) { 
             CHECK_CUBLAS(cublasCreate(&handle));
-            CHECK_CUBLAS(cublasSetStream(handle, strm.get()));
+            try {
+                CHECK_CUBLAS(cublasSetStream(handle, strm.get()));
+            } catch (...) {
+                CHECK_CUBLAS(cublasDestroy(handle));
+                throw;
+            }
         }
         ~cublas_context() { CHECK_CUBLAS(cublasDestroy(handle)); }
 

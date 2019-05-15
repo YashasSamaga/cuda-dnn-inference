@@ -615,13 +615,23 @@ void test_convolution_layer() {
 
     conv1_bias.reshape(1, filters, 1, 1);
 
-    dnn::layer_params<T> params;
-    params.matrix["weights"] = std::move(conv1_weights);
-    params.matrix["bias"] = std::move(conv1_bias);
+    dnn::layer_params<T> params_conv;
+    params_conv.matrix["weights"] = std::move(conv1_weights);
+    params_conv.matrix["bias"] = std::move(conv1_bias);
+
+    dnn::layer_params<T> params_pooling;
+    params_pooling.integers["window_height"] = 2;
+    params_pooling.integers["window_width"] = 2;
+    params_pooling.integers["stride_y"] = 1;
+    params_pooling.integers["stride_x"] = 1;
+    params_pooling.integers["padding_y"] = 0;
+    params_pooling.integers["padding_x"] = 0;
+    params_pooling.strings["type"] = "average_exclude_padding";
 
     dnn::network<T> net;
-    net.add_layer(dnn::layer_type::convolution, params);
+    net.add_layer(dnn::layer_type::convolution, params_conv);
     net.add_layer(dnn::layer_type::relu);
+    net.add_layer(dnn::layer_type::pooling, params_pooling);
 
     std::cout << "Input Matrix:\n";
     matrix<T> input, output;
@@ -636,7 +646,47 @@ void test_convolution_layer() {
     net.forward(input, output);
 
     std::cout << "Output Matrix:\n";
-    print_matrix2d(output);
+    print_matrix2d(output); /* correct output should be a scalar 7.5 */
+}
+
+void test_relu_speed() {
+    using T = float;
+
+    constexpr int num = 1 << 27;
+    cuda::tensor<T> data;
+    data.resize(1, 1, 1, num);
+    data.copy_to_device();
+
+    auto custom_kernel_time = benchmark([&data]() {
+        /*cuda::launch_kernel(cuda::math::kernels::relu<T>, 
+            cuda::view<T>(data.get_device_readonly(), num),
+            cuda::span<T>(data.get_device_writeable(), num),
+            0.0f);*/
+        cuda::relu<T>(data, data, 0.0);
+        CHECK_CUDA(cudaDeviceSynchronize());
+    });
+    std::cout << "Custom Kernel Computation Time: " << to_milliseconds(custom_kernel_time).count() << "ms" << std::endl;
+    
+    cuda::cudnn::handle handle;
+    auto cudnn_time = benchmark([&data, &handle]() {
+        T alpha = 1.0, beta = 0.0;
+        cudnnActivationDescriptor_t aDesc;
+        CHECK_CUDNN(cudnnCreateActivationDescriptor(&aDesc));
+        CHECK_CUDNN(cudnnSetActivationDescriptor(aDesc, CUDNN_ACTIVATION_RELU, CUDNN_PROPAGATE_NAN, 0));
+
+        cudnnTensorDescriptor_t dDesc;
+        CHECK_CUDNN(cudnnCreateTensorDescriptor(&dDesc));
+        CHECK_CUDNN(cudnnSetTensor4dDescriptor(dDesc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT, 1, 1, 1, num));
+
+        CHECK_CUDNN(cudnnActivationForward(handle.get(), aDesc, &alpha, dDesc, data.get_device_readonly().get(),
+            &beta, dDesc, data.get_device_writeable().get()));
+
+        CHECK_CUDA(cudaDeviceSynchronize());
+
+        CHECK_CUDNN(cudnnDestroyTensorDescriptor(dDesc));
+        CHECK_CUDNN(cudnnDestroyActivationDescriptor(aDesc));
+    });
+    std::cout << "cuDNN Computation Time: " << to_milliseconds(cudnn_time).count() << "ms" << std::endl;
 }
 
 int main() {
@@ -682,6 +732,10 @@ int main() {
 
     std::cout << "CONVOLUTION LAYER\n";
     test_convolution_layer();
+    std::cout << std::endl;
+
+    std::cout << "RELU SPEED TEST\n";
+    test_relu_speed();
     std::cout << std::endl;
 
     CHECK_CUDA(cudaDeviceReset());

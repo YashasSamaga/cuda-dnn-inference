@@ -16,6 +16,7 @@ namespace dnn {
         fully_connected,
         softmax,
         convolution,
+        pooling,
 
         /* activation layers */
         abs,
@@ -35,6 +36,7 @@ namespace dnn {
         std::map<std::string, matrix<T>> matrix;
         std::map<std::string, T> values;
         std::map<std::string, int> integers;
+        std::map<std::string, std::string> strings;
     };
 
     template <class T>
@@ -332,6 +334,39 @@ namespace dnn {
 
         typename cuda::convolution<T>::params_type conparams;
         cuda::convolution<T> convoluter;
+    };
+
+    template <class T>
+    class pooling_layer : public layer<T> {
+    public:
+        pooling_layer() : type{ cuda::cudnn::pooling_type::max } { }
+
+        void set_params(const layer_params<T>& params) override {
+            auto typestr = params.strings.at("type");
+            if (typestr == "max")
+                type = cuda::cudnn::pooling_type::max;
+            else if(typestr == "average_exclude_padding")
+                type = cuda::cudnn::pooling_type::average_exclude_padding;
+            else if(typestr == "average_include_padding")
+                type = cuda::cudnn::pooling_type::average_include_padding;
+
+            pooling_params.window_height = params.integers.at("window_height");
+            pooling_params.window_width = params.integers.at("window_width");
+            pooling_params.padding.y = params.integers.at("padding_y");
+            pooling_params.padding.x = params.integers.at("padding_x");
+            pooling_params.stride.y = params.integers.at("stride_y");
+            pooling_params.stride.x = params.integers.at("stride_x");
+        }
+
+        void forward(const cuda::tensor<T>& input, cuda::tensor<T>& output, cuda::workspace& scratchpad) override {
+            pooler = cuda::pooling<T>(type, input.get_num_samples(), input.get_chans(), input.get_height(), input.get_width(), pooling_params);
+            pooler.pool(input, output);
+        }
+
+    private:
+        cuda::cudnn::pooling_type type;
+        cuda::pooling<T>::params_type pooling_params;
+        cuda::pooling<T> pooler;
     };
 }
 

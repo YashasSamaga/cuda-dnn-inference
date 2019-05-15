@@ -184,7 +184,7 @@ namespace cuda {
 
         friend void swap(common_data& lhs, common_data& rhs) noexcept {
             using std::swap;
-            swap(lhs.str, rhs.str);
+            swap(lhs.strm, rhs.strm);
             swap(lhs.device_ptr, rhs.device_ptr);
             swap(lhs.device_dirty, rhs.device_dirty);
 

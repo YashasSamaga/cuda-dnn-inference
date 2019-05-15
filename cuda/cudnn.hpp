@@ -36,6 +36,16 @@ namespace cuda {
         public:
             handle() { CHECK_CUDNN(cudnnCreate(&hndl)); }  
             handle(handle&&) = default;
+            handle(stream s) : strm(std::move(s)) {
+                CHECK_CUDNN(cudnnCreate(&hndl));
+                try {
+                    CHECK_CUDNN(cudnnSetStream(hndl, strm.get()));
+                }
+                catch (...) {
+                    CHECK_CUDNN(cudnnDestroy(hndl));
+                    throw;
+                }
+            }
             ~handle() { if(hndl != nullptr) CHECK_CUDNN(cudnnDestroy(hndl)); }
 
             handle& operator=(handle&& other) {
@@ -48,6 +58,7 @@ namespace cuda {
 
         private:
             cudnnHandle_t hndl;
+            stream strm;
         };
 
         enum class data_format {
@@ -154,7 +165,7 @@ namespace cuda {
         };
 
         /* RAII wrapper for cudnnConvolutionDescriptor_t */
-        template <class T, data_format format = data_format::nchw>
+        template <class T>
         class convolution_descriptor : noncopyable {
         public:
             convolution_descriptor() noexcept : descriptor{ nullptr } { }
@@ -209,7 +220,7 @@ namespace cuda {
 
             template <data_format format = data_format::nchw>
             convolution_algorithm(cudnn::handle& handle,
-                convolution_descriptor<T, format>& conv,
+                convolution_descriptor<T>& conv,
                 filter_descriptor<T, format>& filter,
                 tensor_descriptor<T, format>& input,
                 tensor_descriptor<T, format>& output) {
@@ -232,15 +243,89 @@ namespace cuda {
             std::size_t workspace_size;
         };
 
+        enum class pooling_type {
+            max,
+            average_exclude_padding,
+            average_include_padding
+        };
+
+        namespace detail {
+            /* get_pooling_type<T> returns the equivalent cudnn enumeration constant */
+            auto get_pooling_type(pooling_type type) {
+                switch (type) {
+                case pooling_type::max:
+                    return CUDNN_POOLING_MAX;
+                case pooling_type::average_exclude_padding:
+                    return CUDNN_POOLING_AVERAGE_COUNT_EXCLUDE_PADDING;
+                case pooling_type::average_include_padding:
+                    return CUDNN_POOLING_AVERAGE_COUNT_INCLUDE_PADDING;
+                }
+                return CUDNN_POOLING_MAX; /* TODO how else do I handle? throw? */
+            }
+        }
+
+        /* RAII wrapper for cudnnPoolingDescriptor */
+        class pooling_descriptor : noncopyable {
+        public:
+            pooling_descriptor() noexcept : descriptor{ nullptr } { }
+            pooling_descriptor(pooling_descriptor&& other)
+                : descriptor{ other.descriptor } {
+                other.descriptor = nullptr;
+            }
+
+            pooling_descriptor(pooling_type type,
+                               std::size_t window_height, std::size_t window_width,
+                               std::size_t padding_y, std::size_t padding_x,
+                               std::size_t stride_y, std::size_t stride_x) {
+                CHECK_CUDNN(cudnnCreatePoolingDescriptor(&descriptor));
+                try {
+                    CHECK_CUDNN(cudnnSetPooling2dDescriptor(descriptor, detail::get_pooling_type(type), CUDNN_PROPAGATE_NAN,
+                        static_cast<int>(window_height), static_cast<int>(window_width),
+                        static_cast<int>(padding_y), static_cast<int>(padding_x),
+                        static_cast<int>(stride_y), static_cast<int>(stride_x)));
+                } catch (...) {
+                    CHECK_CUDNN(cudnnDestroyPoolingDescriptor(descriptor));
+                    throw;
+                }
+            }
+
+            ~pooling_descriptor() { /* destructor throws */
+                if (descriptor != nullptr) {
+                    CHECK_CUDNN(cudnnDestroyPoolingDescriptor(descriptor));
+                }
+            }
+
+            pooling_descriptor& operator=(pooling_descriptor&& other) noexcept {
+                descriptor = other.descriptor;
+                other.descriptor = nullptr;
+                return *this;
+            };
+
+            auto get() const noexcept { return descriptor; }
+
+        private:
+            cudnnPoolingDescriptor_t descriptor;
+        };
+
         template <class T, data_format format = data_format::nchw> inline
-        void get_convolution_output_dim(convolution_descriptor<T, format>& conv,
-                                               filter_descriptor<T, format>& filter,
-                                               tensor_descriptor<T, format>& input,
-                                               std::size_t& n, std::size_t& c, std::size_t& h, std::size_t& w) {
+        void get_convolution_output_dim(convolution_descriptor<T>& conv,
+                                        filter_descriptor<T, format>& filter,
+                                        tensor_descriptor<T, format>& input,
+                                        std::size_t& n, std::size_t& c, std::size_t& h, std::size_t& w) {
             int in, ic, ih, iw;
-            CHECK_CUDNN(cudnnGetConvolution2dForwardOutputDim(
-                        conv.get(), input.get(), filter.get(),
-                        &in, &ic, &ih, &iw));
+            CHECK_CUDNN(cudnnGetConvolution2dForwardOutputDim(conv.get(), input.get(), filter.get(), &in, &ic, &ih, &iw));
+            n = static_cast<std::size_t>(in);
+            c = static_cast<std::size_t>(ic);
+            h = static_cast<std::size_t>(ih);
+            w = static_cast<std::size_t>(iw);
+        }
+
+        template <class T, data_format format = data_format::nchw> inline
+        void get_pooling_output_dim(pooling_descriptor& pooling_desc,
+                tensor_descriptor<T, format>& input,
+                std::size_t& n, std::size_t& c, std::size_t& h, std::size_t& w) {
+            int in, ic, ih, iw;
+            CHECK_CUDNN(cudnnGetPooling2dForwardOutputDim(pooling_desc.get(), input.get(), &in, &ic, &ih, &iw));
             n = static_cast<std::size_t>(in);
             c = static_cast<std::size_t>(ic);
             h = static_cast<std::size_t>(ih);
@@ -253,11 +338,28 @@ namespace cuda {
         */
         template <class T, data_format format = data_format::nchw, class U = unsigned char> inline
             typename std::enable_if<std::is_same<T, float>::value || std::is_same<T, double>::value, void>
+            ::type pool(cudnn::handle& handle,
+                pooling_descriptor& pooling_desc,
+                tensor_descriptor<T, format>& input_desc,
+                device_ptr<const T> input_data,
+                T alpha, T beta,
+                tensor_descriptor<T, format>& output_desc,
+                device_ptr<T> output_data) {
+            CHECK_CUDNN(cudnnPoolingForward(handle.get(), pooling_desc.get(), &alpha,
+                input_desc.get(), input_data.get(), &beta, output_desc.get(), output_data.get()));
+        }
+
+        /* cuDNN requires alpha/beta to be in float for half precision
+        ** hence, half precision is unsupported (due to laziness)
+        ** (this is what std::enable_if is doing there)
+        */
+        template <class T, data_format format = data_format::nchw, class U = unsigned char> inline
+            typename std::enable_if<std::is_same<T, float>::value || std::is_same<T, double>::value, void>
             ::type convolve(cudnn::handle& handle,
                         filter_descriptor<T, format>& filter_desc,
                         device_ptr<const T> kernels,
 
-                        convolution_descriptor<T, format>& conv_desc,
+                        convolution_descriptor<T>& conv_desc,
                         convolution_algorithm<T>& algo,
                         device_ptr<U> workspace,
                             

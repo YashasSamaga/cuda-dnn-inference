@@ -34,10 +34,31 @@ namespace cuda {
         using index_type = size_type;
 
         tensor() noexcept : batch_size{ 0 }, num_chans{ 0 }, width{ 0 }, height{ 0 } { }
-        tensor(tensor&&) = default;
+        tensor(tensor&& other) noexcept {
+            data = std::move(other.data);
+            batch_size = other.batch_size;
+            num_chans = other.num_chans;
+            height = other.height;
+            width = other.width;
+            other.batch_size = 0;
+            other.num_chans = 0;
+            other.height = 0;
+            other.width = 0;
+        }
         tensor(stream s) noexcept : data(std::move(s)), batch_size{ 0 }, num_chans{ 0 }, width{ 0 }, height{ 0 } { }
 
-        tensor& operator=(tensor&&) = default;
+        tensor& operator=(tensor&& other) noexcept {
+            data = std::move(other.data);
+            batch_size = other.batch_size;
+            num_chans = other.num_chans;
+            height = other.height;
+            width = other.width;
+            other.batch_size = 0;
+            other.num_chans = 0;
+            other.height = 0;
+            other.width = 0;
+            return *this;
+        }
 
         auto size() const noexcept { return batch_size * num_chans * width * height; }
         auto get_height() const noexcept { return height; }
@@ -61,14 +82,20 @@ namespace cuda {
         void write(index_type y, index_type x, value_type val) { return write(0, 0, y, x, val); }
         void write(index_type c, index_type y, index_type x, value_type val) { return write(0, c, y, x, val); }
 
-        void resize(size_type N, size_type chans, size_type height, size_type width) {
-            assert(N != 0 && chans != 0 && width != 0 && height != 0);
+        void resize(size_type n, size_type chans, size_type height, size_type width) {
+            assert(n != 0 && chans != 0 && width != 0 && height != 0);
+            const auto new_size = n * chans * height * width;
+            const auto old_size = size();
+            if (new_size == old_size && new_size == data.size()) {
+                reshape(n, chans, height, width);
+                return;
+            }
 
-            batch_size = N;
+            data.reset(new_size);
+            batch_size = n;
             num_chans = chans;
             this->height = height;
             this->width = width;
-            data.reset(N * chans * height * width);
         }
         void resize(size_type chans, size_type height, size_type width) { resize(1, chans, height, width); }
         void resize(size_type height, size_type width) { resize(1, 1, height, width); }
@@ -98,6 +125,15 @@ namespace cuda {
         iterator end() { return data.end(); }
         const_iterator begin() const { return data.begin(); }
         const_iterator end() const { return data.end(); }
+
+        friend void swap(tensor& lhs, tensor& rhs) noexcept { /* TODO could be broken */
+            using std::swap;
+            swap(lhs.data, rhs.data);
+            swap(lhs.batch_size, rhs.batch_size);
+            swap(lhs.num_chans, rhs.num_chans);
+            swap(lhs.height, rhs.height);
+            swap(lhs.width, rhs.width);
+        }
 
     private:
         /* TODO stop this mutable abuse */
@@ -286,6 +322,45 @@ namespace cuda {
         std::size_t output_n, output_chans, output_height, output_width;
 
         workspace scratchpad;
+    };
+
+    template <class T>
+    class pooling : noncopyable {
+    public:
+        struct params_type {
+            std::size_t window_height, window_width;
+            struct { std::size_t x, y; } padding, stride; 
+        };
+
+        pooling() = default;
+        pooling(pooling&&) = default;
+        pooling(cudnn::pooling_type type, std::size_t N, std::size_t in_chans, std::size_t in_height, std::size_t in_width, params_type& params) {
+
+            inputTensorDesc = cudnn::tensor_descriptor<T>(N, in_chans, in_height, in_width);
+
+            poolingDesc = cudnn::pooling_descriptor(type, params.window_height, params.window_width,
+                                                       params.padding.x, params.padding.y,
+                                                       params.stride.x, params.stride.y);
+
+            get_pooling_output_dim(poolingDesc, inputTensorDesc, output_n, output_chans, output_height, output_width);
+
+            outputTensorDesc = cudnn::tensor_descriptor<T>(output_n, output_chans, output_height, output_width);
+        }
+
+        pooling& operator=(pooling&&) = default;
+
+        void pool(const tensor<T>& input, tensor<T>& output) {
+            output.resize(output_n, output_chans, output_height, output_width);
+            cudnn::pool<T>(handle, poolingDesc, inputTensorDesc, input.get_device_readonly(), 1.0, 0.0, outputTensorDesc, output.get_device_writeable());
+        }
+
+    private:
+        cudnn::handle handle;
+
+        cudnn::tensor_descriptor<T> inputTensorDesc, outputTensorDesc;
+        cudnn::pooling_descriptor poolingDesc;
+ 
+        std::size_t output_n, output_chans, output_height, output_width;
     };
 
     template <class T> inline

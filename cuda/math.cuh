@@ -91,7 +91,6 @@ namespace cuda {
             __global__ void relu(view<T> src, span<T> dest, T slope) {
                 assert(src.size() >= dest.size());
                 for (auto i : grid_stride_range(dest.size())) {
-                    using detail::max;
                     dest[i] = src[i] >= 0.0 ? src[i] : slope * src[i];
                 }
             }

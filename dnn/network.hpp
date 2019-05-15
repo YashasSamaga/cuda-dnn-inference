@@ -2,6 +2,7 @@
 #define DNN_NETWORK_HPP
 
 #include <iostream>
+#include <thread>
 
 #include "layers.hpp"
 #include "cuda/workspace.hpp"
@@ -24,6 +25,8 @@ namespace dnn {
                     return make_unique<softmax_layer<T>>();
                 case layer_type::convolution:
                     return make_unique<convolution_layer<T>>();
+                case layer_type::pooling:
+                    return make_unique<pooling_layer<T>>();
                 case layer_type::abs:
                     return make_unique<abs_layer<T>>();
                 case layer_type::bnll:
@@ -73,6 +76,8 @@ namespace dnn {
 
     private:
         cuda::stream stream;
+        cuda::cublas_context cublas_handle;
+        cuda::cudnn::handle cudnn_handle;
         cuda::workspace scratchpad;
         std::vector<std::unique_ptr<layer<T>>> layers; /* TODO use graph */
     };
