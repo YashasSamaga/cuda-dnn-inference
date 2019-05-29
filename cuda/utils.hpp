@@ -47,7 +47,7 @@ namespace cuda {
 
     template <class Kernel, typename ...Args> inline
     void launch_kernel(Kernel kernel, execution_policy policy, Args ...args) {
-        kernel <<<policy.grid, policy.block, policy.sharedMem, policy.stream >>> (std::forward<Args>(args)...);
+        kernel <<<policy.grid, policy.block, policy.sharedMem, policy.stream>>> (std::forward<Args>(args)...);
     }
 
     inline void device_synchronize() { CHECK_CUDA(cudaDeviceSynchronize()); }

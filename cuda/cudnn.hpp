@@ -23,7 +23,7 @@ namespace cuda {
 
         namespace detail {
             inline void check_cudnn_status(cudnnStatus_t error, std::string filename, std::size_t lineno) {
-                if (error != cudaSuccess) {
+                if (error != CUDNN_STATUS_SUCCESS) {
                     std::ostringstream stream;
                     stream << "CUDNN Error: " << filename << ":" << lineno << '\n';
                     stream << cudnnGetErrorString(error) << '\n';
@@ -176,7 +176,8 @@ namespace cuda {
 
             convolution_descriptor(std::size_t padding_y, std::size_t padding_x,
                                    std::size_t stride_y, std::size_t stride_x,
-                                   std::size_t dilation_y, std::size_t dialation_x) {
+                                   std::size_t dilation_y, std::size_t dialation_x,
+                                   std::size_t groups) {
                 CHECK_CUDNN(cudnnCreateConvolutionDescriptor(&descriptor));
                 try {
                     CHECK_CUDNN(cudnnSetConvolution2dDescriptor(descriptor,
@@ -184,6 +185,7 @@ namespace cuda {
                         static_cast<int>(stride_y), static_cast<int>(stride_x),
                         static_cast<int>(dilation_y), static_cast<int>(dialation_x),
                         CUDNN_CROSS_CORRELATION, detail::get_data_type<T>()));
+                    CHECK_CUDNN(cudnnSetConvolutionGroupCount(descriptor, groups));
                 } catch (...) {
                     CHECK_CUDNN(cudnnDestroyConvolutionDescriptor(descriptor));
                     throw;

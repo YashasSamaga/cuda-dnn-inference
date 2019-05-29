@@ -254,9 +254,10 @@ namespace cuda {
         struct params_type {
             params_type() = default;
             params_type(std::size_t num, std::size_t channels, std::size_t kheight, std::size_t kwidth) noexcept
-                : padding{ 0, 0 }, stride{ 1, 1 }, dialation{ 1, 1 },
+                : padding{ 0, 0 }, stride{ 1, 1 }, dialation{ 1, 1 }, groups{ 1 },
                 kernel{ num, channels, kheight, kwidth } { }
 
+            std::size_t groups;
             struct { std::size_t x, y; } padding, stride, dialation;
             struct {
                 std::size_t num;
@@ -278,7 +279,10 @@ namespace cuda {
             auto& padding = params.padding;
             auto& stride = params.stride;
             auto& dialation = params.dialation;
-            convDesc = cudnn::convolution_descriptor<T>(padding.y, padding.x, stride.y, stride.x, dialation.y, dialation.x);
+            convDesc = cudnn::convolution_descriptor<T>(padding.y, padding.x,
+                                                        stride.y, stride.x,
+                                                        dialation.y, dialation.x,
+                                                        params.groups);
 
             get_convolution_output_dim(convDesc, filterDesc, inputTensorDesc,
                                        output_n, output_chans, output_height, output_width);

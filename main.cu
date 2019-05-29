@@ -106,7 +106,7 @@ namespace cublas {
 
     template <class T>
     void matrix_multiply(cuda::cublas_context& handle, cuda::device_ptr<const T> first, cuda::device_ptr<const T> second, cuda::device_ptr<T> result, std::size_t n) {
-        cuda::blas::gemm<T>(handle, false, false, n, n, n, 1.0f, second, n, first, n, 0.0, result, n);
+        cuda::blas::gemm<T>(handle, false, false, n, n, n, 1.0f, first, n, second, n, 0.0, result, n);
     }
 }
 
@@ -173,8 +173,10 @@ void test_matrix_multiply() {
     auto gpu_comp_time = benchmark([&d_lhs, &d_rhs, &d_result] {
         auto block = dim3(32, 32);
         auto grid = dim3((n + block.x - 1)/block.x, (n + block.y - 1)/block.y);
-        cuda::launch_kernel(gpu::matrix_multiply<T>, grid, block, d_lhs.get(), d_rhs.get(), d_result.get(), n);
-        //cuda::launch_kernel(gpu::matrix_multiply<T>, d_lhs.get(), d_rhs.get(), d_result.get(), n);
+        auto policy = cuda::execution_policy(grid, block);
+        //auto policy = cuda::make_optimal_policy(gpu::matrix_multiply<T>);
+
+        cuda::launch_kernel(gpu::matrix_multiply<T>, policy, d_lhs.get(), d_rhs.get(), d_result.get(), n);
         cuda::device_synchronize();
     });
 
@@ -195,7 +197,7 @@ void test_matrix_multiply() {
 
     cuda::cublas_context handle; /* declared outside because lazy initialization screws with the benchmarks */
     auto cublas_time = benchmark([&handle, &d_lhs, &d_rhs, &d_result] {
-        cublas::matrix_multiply<float>(handle, d_lhs.get(), d_rhs.get(), d_result.get(), n);
+        cublas::matrix_multiply<T>(handle, d_lhs.get(), d_rhs.get(), d_result.get(), n);
         cuda::device_synchronize();
     });
     cuda::memcpy(&gpu_result[0], d_result);
@@ -699,27 +701,27 @@ int main() {
     CHECK_CUDA(cudaFree(0)); /* establish context beforehand so that the benchmarks are not disturbed */
 
     std::cout << "DATA TRANSFER:\n";
-   // test_data_transfer();
+    test_data_transfer();
     std::cout << std::endl;
 
     std::cout << "VECTOR ADDITION:\n";
-    //test_vector_add();
+    test_vector_add();
     std::cout << std::endl;
 
     std::cout << "MATRIX ADDITION:\n";
-    //test_matrix_add();
+    test_matrix_add();
     std::cout << std::endl;
 
     std::cout << "MATRIX ADDITION (using stream)\n";
-    //test_stream_matrix_add();
+    test_stream_matrix_add();
     std::cout << std::endl;
 
     std::cout << "MATRIX MULTIPLICATION:\n";
-    //test_matrix_multiply();
+    test_matrix_multiply();
     std::cout << std::endl;
 
     std::cout << "MATRIX ADDITION (stream parallelism)\n";
-   // test_stream_parallelism();
+    test_stream_parallelism();
     std::cout << std::endl;
 
     std::cout << "FULLY CONNECTED LAYER\n";

@@ -296,6 +296,10 @@ namespace dnn {
             if (params.integers.count("dialation_y"))
                 dialation_y = params.integers.at("dialation_y");
 
+            std:size_t groups = 1;
+            if (params.integers.count("groups"))
+                groups = params.integers.at("groups");
+
             conparams = cuda::convolution<T>::params_type(out_channels, in_channels, kernel_height, kernel_width);
             conparams.padding.x = padding_x;
             conparams.padding.y = padding_y;
@@ -303,6 +307,7 @@ namespace dnn {
             conparams.stride.y = stride_y;
             conparams.dialation.x = dialation_x;
             conparams.dialation.y = dialation_y;
+            conparams.groups = groups;
 
             /*
             const auto kernel_extent_width = dialation_x * (kernel_width - 1) + 1;
